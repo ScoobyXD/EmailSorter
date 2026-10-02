@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { rolldown } from 'rolldown';
 import { chromium } from '@playwright/test';
+import { validateLogBatch } from '../helper/src/run-logs.ts';
 
 const build = await rolldown({ input: 'src/gmail/journal.ts', platform: 'browser' });
 const bundle = await build.generate({ format: 'iife', name: 'JournalFixture' });
@@ -8,6 +9,7 @@ await build.close();
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE, headless: true });
 const context = await browser.newContext();
 const page = await context.newPage();
+await page.exposeFunction('validateFixtureBatch', (payload) => { validateLogBatch(payload); });
 const unexpected = [];
 await context.route('**/*', async (route) => {
   if (route.request().isNavigationRequest() && route.request().url() === 'https://dock-journal.example.test/') await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Isolated Dock journal fixture</title>' });
@@ -30,6 +32,7 @@ async function setup() {
           window.assert(url === 'http://127.0.0.1:38471/logs/append', 'only the local fixture endpoint is allowed');
           window.assert(init.headers.Authorization === `Bearer ${'x'.repeat(40)}`, 'mirror uses the protected pairing credential');
           const payload = JSON.parse(init.body);
+          await window.validateFixtureBatch(payload);
           state.calls.push({ payload, bytes: new TextEncoder().encode(init.body).length });
           state.active++; state.peak = Math.max(state.peak, state.active);
           try {
@@ -136,6 +139,42 @@ test('mirror batches stay bounded, only one fetch runs, and acknowledgement surv
     await restarted.sync(); assert(f.state.calls.length === count, 'restart does not resend acknowledged entries');
     await restarted.append(draft()); await restarted.sync();
     assert(f.state.calls.at(-1).payload.events.map((event) => event.seq).join(',') === '63', 'only the new tail is mirrored after restart');
+  });
+});
+
+test('Unicode category snapshots, arbitrary category IDs, and sanitized diagnostic strings pass the actual helper validator', async () => {
+  await page.evaluate(async () => {
+    const f = fixture({ paired: true });
+    const categories = Array.from({ length: 50 }, (_, i) => ({ id: `category-${i}`, title: '界'.repeat(120), description: '界'.repeat(1000) }));
+    const snapshot = await f.journal.append(draft('run.started', 'unicode-run', { categories, daysBack: 36, startedAt: 1790000000000 }));
+    assert(new TextEncoder().encode(JSON.stringify(snapshot)).length > 64000, 'fixture exceeds the former per-event limit');
+    const diagnostic = await f.journal.append({ ...draft('classification.finished', 'unicode-run', {
+      answer: { choice: 'body', confidence: 0.25, probabilities: { token: 0.25, body: 0.25, auth: 0.25, access_token: 0.25 } },
+      usage: { input_tokens: 123, output_tokens: 0 },
+      error: `Mailbox owner@example.test ${'x'.repeat(6000)}\u0001`,
+      googleMessage: 'Google denied access to owner@example.test',
+      nested: { note: 'Line\u0002broken', pairingToken: 'private', cookie: 'private', rawPrompt: 'private' },
+      subject: 'private', sender: 'private', accountEmail: 'private@example.test',
+    }), message: 'Diagnostic owner@example.test\u0001' });
+    assert(diagnostic.data.answer.probabilities.token === 0.25 && diagnostic.data.answer.probabilities.body === 0.25, 'category IDs are preserved as numeric probabilities');
+    assert(diagnostic.data.usage.input_tokens === 123, 'usage counts remain available');
+    assert(diagnostic.data.error.length <= 4096 && !JSON.stringify(diagnostic).includes('@example.test') && !JSON.stringify(diagnostic).includes('private'), 'diagnostic strings and IDs-only privacy boundary are enforced');
+    assert(diagnostic.data.logTruncatedFields.includes('data.error') && diagnostic.data.logTruncatedFields.includes('message') && diagnostic.data.logTruncatedFields.includes('data.nested.note'), 'every shortened/normalized diagnostic field is disclosed');
+    const synced = await f.journal.sync();
+    assert(synced.mirror === 'saved' && synced.mirroredThrough === 2, 'actual helper schema accepts all normalized events');
+    assert(f.state.calls.every((call) => call.bytes < 256 * 1024), 'large valid rules remain below helper request cap');
+  });
+});
+
+test('a new journal generation uses a different file namespace when sequence numbers restart', async () => {
+  await page.evaluate(async () => {
+    const first = fixture({ paired: true }); const second = fixture({ paired: true });
+    await first.journal.append(draft()); await first.journal.sync();
+    await second.journal.append(draft()); await second.journal.sync();
+    assert(first.state.calls[0].payload.events[0].seq === 1 && second.state.calls[0].payload.events[0].seq === 1, 'new databases each start at sequence one');
+    assert(first.state.calls[0].payload.installationId !== second.state.calls[0].payload.installationId, 'separate journal generations never conflict in the helper namespace');
+    const restarted = first.restart(); await restarted.append(draft()); await restarted.sync();
+    assert(first.state.calls[0].payload.installationId === first.state.calls.at(-1).payload.installationId, 'worker restart keeps the same namespace');
   });
 });
 

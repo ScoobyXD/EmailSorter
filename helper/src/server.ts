@@ -80,7 +80,7 @@ export function createHelperServer(options: Options) {
       }
       if (['GET', 'POST'].includes(request.method ?? '') && request.url === '/health') {
         if (request.method === 'POST') await readJson(request);
-        respond(response, 200, { ok: true, service: 'dock-jev-helper', version: '0.4.3', model: options.model ?? MODEL, logs: { supported: Boolean(logs), ...(logs ? { path: logs.directory } : {}) } });
+        respond(response, 200, { ok: true, service: 'dock-jev-helper', version: '0.4.4', model: options.model ?? MODEL, logs: { supported: Boolean(logs), ...(logs ? { path: logs.directory } : {}) } });
         return;
       }
       if (request.method === 'POST' && request.url === '/logs/append') {

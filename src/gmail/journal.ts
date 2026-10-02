@@ -39,7 +39,7 @@ function cleanDraft(draft: LogDraft): LogDraft {
   // Callers provide explicit metadata, never request/response bodies. Defense in depth for nested objects.
   const truncated: string[] = [];
   const text = (value: string, path: string, max = 4096) => {
-    const diagnostic = path === 'message' || /\.(?:error|message)$/.test(path) ? value.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email address]') : value;
+    const diagnostic = /(?:error|message)$/i.test(path) ? value.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email address]') : value;
     const clean = diagnostic.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ').slice(0, max);
     if (clean !== value) truncated.push(path);
     return clean;
@@ -76,6 +76,7 @@ function summarize(previous: LogRunSummary | undefined, event: LogDraft): LogRun
   if (event.event === 'email.succeeded') summary.labeled++;
   if (event.event === 'run.started' || event.event === 'run.resumed') {
     summary.status = 'running';
+    if (typeof data.startedAt === 'number' && Number.isFinite(data.startedAt)) summary.startedAt = data.startedAt;
     if (typeof data.daysBack === 'number') summary.daysBack = data.daysBack;
     if (typeof data.succeeded === 'number') summary.labeled = Math.max(summary.labeled, data.succeeded);
   }
