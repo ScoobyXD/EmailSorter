@@ -1,6 +1,6 @@
-# Dock 0.4.4 — manual Gmail categories
+# Dock 0.4.3 — manual Gmail categories
 
-Dock adds category tabs inside Gmail. Press **Categorize emails** to classify only messages currently in Inbox received within the selected date window (30 days by default). There is no schedule, new-mail watcher, overnight worker, or urgency ranking. Outlook and the standalone preview remain sample-only.test
+Dock adds category tabs inside Gmail. Press **Categorize emails** to classify only messages currently in Inbox received within the selected date window (30 days by default). There is no schedule, new-mail watcher, overnight worker, or urgency ranking. Outlook and the standalone preview remain sample-only.
 
 ## Project location
 
@@ -10,11 +10,9 @@ The old Codex workspace paths forward to this project for compatibility with the
 
 ## Update the installed Dock
 
-The existing `outputs\dock-extension` folder now contains **0.4.4**. After an active run finishes or you stop it, reload **Dock — Gmail Categories** in `chrome://extensions`, restart the local helper using the same `Start-Dock-Helper.cmd`, and refresh Gmail. Keep the same installed extension (`ccklhlnpillicildcgbdfibggkkhkdib`); removing it would clear its saved categories and checkpoints. The updated helper keeps its existing pairing and API configuration.
+The existing `outputs\dock-extension` folder now contains **0.4.3**. In `chrome://extensions`, click the reload arrow on **Dock — Gmail Categories**, then refresh Gmail. Keep the same installed extension (`ccklhlnpillicildcgbdfibggkkhkdib`); removing it would clear its saved categories and checkpoints.
 
-This update adds **Run logs** beside Connection: a live timeline, run history, event search, detailed request/decision records, and JSON export. Browser events are copied automatically to local helper files when it is reachable. A storage indicator distinguishes browser-only events from acknowledged file copies. Logs use message IDs; subjects, senders, bodies, and credentials are excluded.
-
-The 0.4.3 navigation fix is included: category emails open within the current Gmail page instead of reloading Gmail. Normal clicks and Enter use Gmail's conversation routing when the visible Google account (or email-valued `authuser`) matches Dock's connected account. Ctrl/Cmd-click and other modified clicks keep normal browser link behavior. If the current account differs or cannot be identified, the account-qualified link still selects the connected account. Browser Back returns to the previous Gmail route.
+This patch opens category emails within the current Gmail page instead of reloading Gmail. Normal clicks and Enter use Gmail's conversation routing when the visible Google account (or email-valued `authuser`) matches Dock's connected account. Ctrl/Cmd-click and other modified clicks keep normal browser link behavior. If the current account differs or cannot be identified, the account-qualified link still selects the connected account. Browser Back returns to the previous Gmail route.
 
 The 0.4.2 rate-limit recovery remains included. Reloading does not start categorization; leave **Resume unfinished or failed messages** checked and press **Categorize emails** to continue a saved run.
 
@@ -35,39 +33,6 @@ The 0.4.2 rate-limit recovery remains included. Reloading does not start categor
 This is a new extension identity. Reloading the old prototype from the `hey-q` output folder will not install this version. For subsequent updates to this new version: replace its unpacked files, click its reload arrow on Chrome's Extensions page, then refresh Gmail. Do not remove/reinstall it, which clears its local definitions and checkpoints.
 
 The shipped source and extension contain only a public OAuth client ID and public extension key. They contain no Jev key or helper pairing secret.
-
-## Observe and investigate a run
-
-Open **Run logs** in Gmail. **How sorting works** explains the pipeline and quota costs. Select the current or an older run, or **All activity** to include browsing and connection operations. Events appear newest first and update every two seconds without Gmail API calls. Search loaded events by message ID, request ID, stage, or error; use **Load older** to include earlier events. Expand any row for its structured record. **Export JSON** exports all retained events in the selection, independent of the visible page and filter.
-
-The timeline records:
-
-1. The manual command, fixed date window, category rules, discovery pages, and label setup.
-2. Each email's ID, Inbox/date eligibility, decoded text size, classification call, returned category and probability scores, model and token usage, and cached-result reuse when reported by the helper.
-3. The decision checkpoint before the label request, exact label additions/removals, Gmail response, and successful checkpoint afterward. If a request's response is lost, its outcome is shown as unknown until subsequent recovery establishes it.
-4. Every Gmail attempt with a correlation ID, operation, estimated quota cost, HTTP status/error reason, duration, pacing wait, shared cooldown, and retry. Category preview requests use the same budget and are logged too.
-5. Stops, restarts, resumes, deferred/skipped/failed emails, and the final counts. Reading logs does not start or resume email processing.
-
-These are operational traces and returned model results, not a transcript of hidden model reasoning. Quota units are estimates based on published per-method costs, including attempted requests; they are not Google's actual remaining quota balance. Events before this version was installed cannot be reconstructed. A resumed older run records its saved counts and all new steps.
-
-**Your logging preference is message IDs only.** Email subjects, senders, bodies, snippets, account addresses, and credentials are omitted. Logs retain your configured category titles/descriptions and model outputs so decisions can be compared against the rules used. Oversized or invalid diagnostic text is normalized with a truncation marker; logging/storage failures are shown as coverage warnings rather than silently reported as complete.
-
-The browser journal survives page refreshes and worker restarts. It normally retains 100,000 events plus any unmirrored backlog, and up to 100 recent run summaries. Only events already acknowledged by the helper may age out. The helper appends JSON Lines files under:
-
-`C:\Users\Jonat\Dock\outputs\dock-helper\.private\run-logs\<journal-namespace>\<run-id>.jsonl`
-
-If the source helper is running, its corresponding folder is `C:\Users\Jonat\Dock\helper\.private\run-logs`. Activity outside runs uses dated activity files. Recovery segments preserve interrupted writes. Helper files are not automatically deleted, and packaging excludes/preserves the entire `.private` directory. **Log storage** shows the exact active destination and acknowledgment status. If it says the old helper lacks logging, restart the updated helper and select **Retry local copy**. Pending browser events will be copied; no mail needs to be processed to sync logs.
-
-For later investigation, Codex can read those local files directly. From the project root:
-
-```powershell
-npm run logs:read
-npm run logs:read -- --run RUN_ID
-npm run logs:read -- --message MESSAGE_ID
-node scripts/read-run-logs.mjs --run RUN_ID --json
-```
-
-The reader summarizes steps, all recorded problems, request costs, and the latest events. It combines recovery segments, identifies malformed/conflicting records, and reports incomplete coverage instead of treating gaps as success. Export a run from the UI to share it deliberately; generated extension/source/helper packages contain no run logs.
 
 ## Start the local helper
 
@@ -145,7 +110,6 @@ Extract `Dock-source.zip` and run:
 ```powershell
 npm ci
 npm run typecheck
-npm run test:engine
 npm run build
 npm run package
 ```
@@ -156,7 +120,6 @@ The extension build is `.output/chrome-mv3`; the packager writes deliverables in
 cd helper
 npm ci
 npm run typecheck
-npm test
 ```
 
 Browser smoke tests use an isolated Chromium profile, synthetic Gmail/Outlook pages, and mocked API data. They never load your real mailbox. See the delivered `VERIFICATION.md` for the exact checks run and remaining live-verification limits.

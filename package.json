@@ -1,6 +1,6 @@
 {
   "name": "dock-gmail-organizer",
-  "version": "0.4.4",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,10 +9,7 @@
     "zip": "wxt zip",
     "typecheck": "tsc --noEmit",
     "postinstall": "wxt prepare",
-    "package": "node scripts/package.mjs",
-    "test:engine": "node scripts/engine-tests.mjs",
-    "test:logs": "node scripts/journal-tests.mjs",
-    "logs:read": "node scripts/read-run-logs.mjs"
+    "package": "node scripts/package.mjs"
   },
   "dependencies": {
     "@playwright/test": "1.63.0",

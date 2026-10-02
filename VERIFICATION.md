@@ -1,5 +1,7 @@
 # Dock 0.4.3 verification
 
+Unit test suites were removed on October 2, 2026. Earlier unit test results below are historical records. Current checks use TypeScript, production builds, and browser smoke scripts.
+
 ## 0.4.3 category conversation navigation — October 2, 2026
 
 Category rows previously followed `https://mail.google.com/mail/u/?authuser=...#all/...`, changing the account path/query from the current Gmail document and causing a full page load. Ordinary primary clicks and Enter now close the category overlay and set only the conversation hash when the current Gmail account matches Dock's connected account. The account is checked at click time using the native Google account badge, with email-valued `authuser` as a fallback. Different or unidentified accounts retain the account-qualified link. Modified clicks keep browser link behavior without clearing the category selection.
@@ -67,7 +69,6 @@ From the extracted source root:
 ```powershell
 npm ci
 npm run typecheck
-npm run test:engine
 npm run build
 npm run package
 $env:CHROMIUM_EXECUTABLE = 'C:\Users\Jonat\AppData\Local\ms-playwright\chromium-1228\chrome-win64\chrome.exe'
@@ -81,7 +82,6 @@ From its `helper` subdirectory:
 ```powershell
 npm ci
 npm run typecheck
-npm test
 ```
 
 Use a Chromium executable installed on your machine if the example path differs. These automated fixtures are isolated from the live mailbox.

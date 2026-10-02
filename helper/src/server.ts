@@ -3,12 +3,11 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MAX_REQUEST_BYTES, MODEL, PublicError, validateInput } from './classification.ts';
 import type { ClassificationRequest, ClassificationResult } from './classification.ts';
-import { MAX_LOG_REQUEST_BYTES, RunLogWriter } from './run-logs.ts';
 
 export const PORT = 38471;
 export const EXTENSION_ID = 'ccklhlnpillicildcgbdfibggkkhkdib';
 export type Classifier = (input: ClassificationRequest, signal: AbortSignal) => Promise<ClassificationResult>;
-interface Options { pairingToken: string; extensionId?: string; model?: string; classify: Classifier; maxConcurrent?: number; logDirectory?: string }
+interface Options { pairingToken: string; extensionId?: string; model?: string; classify: Classifier; maxConcurrent?: number }
 
 function safeEqual(a: string, b: string): boolean {
   const actual = Buffer.from(a);
@@ -20,18 +19,18 @@ function respond(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(body));
 }
-async function readJson(request: IncomingMessage, maximumBytes = MAX_REQUEST_BYTES): Promise<unknown> {
+async function readJson(request: IncomingMessage): Promise<unknown> {
   if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers['content-type'] ?? '')) {
     throw new PublicError(415, 'CONTENT_TYPE', 'Use application/json.');
   }
-  if (request.headers['content-encoding'] || Number(request.headers['content-length']) > maximumBytes) {
+  if (request.headers['content-encoding'] || Number(request.headers['content-length']) > MAX_REQUEST_BYTES) {
     throw new PublicError(413, 'INPUT_TOO_LARGE', 'The request exceeds the supported input size.');
   }
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of request) {
     bytes += chunk.length;
-    if (bytes > maximumBytes) throw new PublicError(413, 'INPUT_TOO_LARGE', 'The request exceeds the supported input size.');
+    if (bytes > MAX_REQUEST_BYTES) throw new PublicError(413, 'INPUT_TOO_LARGE', 'The request exceeds the supported input size.');
     chunks.push(Buffer.from(chunk));
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
@@ -43,7 +42,6 @@ export function createHelperServer(options: Options) {
   const extensionId = options.extensionId ?? EXTENSION_ID;
   if (!/^[a-p]{32}$/.test(extensionId)) throw new Error('A valid Chrome extension ID is required.');
   const origin = `chrome-extension://${extensionId}`;
-  const logs = options.logDirectory ? new RunLogWriter(options.logDirectory) : undefined;
   let active = 0;
   let windowStart = Date.now();
   let requestsInWindow = 0;
@@ -80,12 +78,7 @@ export function createHelperServer(options: Options) {
       }
       if (['GET', 'POST'].includes(request.method ?? '') && request.url === '/health') {
         if (request.method === 'POST') await readJson(request);
-        respond(response, 200, { ok: true, service: 'dock-jev-helper', version: '0.4.4', model: options.model ?? MODEL, logs: { supported: Boolean(logs), ...(logs ? { path: logs.directory } : {}) } });
-        return;
-      }
-      if (request.method === 'POST' && request.url === '/logs/append') {
-        if (!logs) throw new PublicError(503, 'LOGS_UNAVAILABLE', 'Restart the updated Dock helper to save logs to disk.', true);
-        respond(response, 200, await logs.append(await readJson(request, MAX_LOG_REQUEST_BYTES)));
+        respond(response, 200, { ok: true, service: 'dock-jev-helper', version: '0.4.0', model: options.model ?? MODEL });
         return;
       }
       if (request.method !== 'POST' || request.url !== '/classify') throw new PublicError(404, 'NOT_FOUND', 'Unknown helper operation.');
@@ -102,13 +95,11 @@ export function createHelperServer(options: Options) {
       // An MV3 worker may terminate a fetch whose response takes over 30 seconds.
       const timer = setTimeout(() => { deadlineElapsed = true; abort.abort(); }, 23000);
       try {
-        const startedAt = Date.now();
         const input = validateInput(await readJson(request));
         const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
         const cached = cache.get(digest);
         let result: ClassificationResult;
-        const cacheHit = Boolean(cached && cached.expires > Date.now());
-        if (cacheHit) result = cached!.result;
+        if (cached && cached.expires > Date.now()) result = cached.result;
         else {
           try { result = await options.classify(input, abort.signal); }
           catch (error) {
@@ -118,7 +109,7 @@ export function createHelperServer(options: Options) {
           if (cache.size >= 2000) cache.delete(cache.keys().next().value!);
           cache.set(digest, { result, expires: Date.now() + 60 * 60 * 1000 });
         }
-        respond(response, 200, { ...result, trace: { cacheHit, durationMs: Date.now() - startedAt } });
+        respond(response, 200, result);
       } finally {
         clearTimeout(timer);
         response.off('close', onClose);

@@ -1,4 +1,3 @@
-import type { LogExport, LogPage } from './log-types';
 export interface DockCategory {
   id: string;
   title: string;
@@ -32,7 +31,6 @@ export interface DockState {
   oauthConfigured: boolean;
   run?: RunProgress;
   error?: string;
-  logWarning?: string;
 }
 export interface GmailMessageSummary {
   id: string;
@@ -45,9 +43,6 @@ export interface GmailMessageSummary {
   gmailUrl: string;
 }
 export type DockRequest = { type: 'dock:api' } & (
-  | { command: 'logs'; runId?: string; before?: number; limit?: number }
-  | { command: 'exportLogs'; runId?: string }
-  | { command: 'syncLogs' }
   | { command: 'state' | 'connect' | 'disconnect' | 'stop' | 'resume' }
   | { command: 'setDaysBack' | 'start'; daysBack: number }
   | { command: 'pairHelper'; token: string }
@@ -57,7 +52,7 @@ export type DockRequest = { type: 'dock:api' } & (
   | { command: 'listMessages'; categoryId: string; pageToken?: string }
 );
 export type DockResponse =
-  | { ok: true; state?: DockState; messages?: GmailMessageSummary[]; nextPageToken?: string; logPage?: LogPage; logExport?: LogExport }
+  | { ok: true; state?: DockState; messages?: GmailMessageSummary[]; nextPageToken?: string }
   | { ok: false; error: string };
 export const UNCATEGORIZED = 'uncategorized';
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';

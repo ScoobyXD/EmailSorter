@@ -6,7 +6,6 @@ export interface Classification {
   model: string;
   answer: { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> };
   usage: { input_tokens: number; output_tokens: number };
-  trace?: { cacheHit: boolean; durationMs: number };
 }
 export interface RunItem {
   id: string;
@@ -67,7 +66,7 @@ export function publicState(state: StoredState, oauthConfigured: boolean): DockS
   return {
     version: 2, categories: state.categories, daysBack: state.daysBack,
     accountEmail: state.accountEmail, helperReady: Boolean(state.helperToken), oauthConfigured,
-    error: state.error, logWarning: state.logWarning,
+    error: state.error,
     ...(run ? { run: {
       id: run.id, status: run.status, phase: run.phase, daysBack: run.daysBack, total: run.total,
       processed: run.processed, succeeded: run.succeeded, failed: run.failed, skipped: run.skipped,

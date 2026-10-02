@@ -6,7 +6,6 @@ import { createInitialState, migrateDemoState, type DemoState } from './data';
 import { UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type DockState, type GmailMessageSummary } from '../gmail/protocol';
 import { canOpenGmailConversationInPlace } from '../integration/gmail-navigation';
 import nativeStyles from './workspace.css?inline';
-import { RunLogs } from './RunLogs';
 
 export type DockApi = (request: DockRequest) => Promise<DockResponse>;
 export interface WorkspaceProps {
@@ -39,7 +38,6 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
   const [editor, setEditor] = useState<Editor | null>(null);
   const [deleting, setDeleting] = useState<DockCategory | null>(null);
   const [setup, setSetup] = useState(false);
-  const [logsOpen, setLogsOpen] = useState(false);
   const [token, setToken] = useState('');
   const [importJson, setImportJson] = useState('');
   const [resumeRun, setResumeRun] = useState(true);
@@ -54,7 +52,6 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
   const noRef = useRef<HTMLButtonElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const addRef = useRef<HTMLButtonElement>(null);
-  const logsButtonRef = useRef<HTMLButtonElement>(null);
   const selectionCallback = useRef(onSelectionChange);
   selectionCallback.current = onSelectionChange;
   const selectedRef = useRef(selectedId);
@@ -164,10 +161,6 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
       window.location.hash = `#all/${encodeURIComponent(message.threadId)}`;
     } else backToInbox();
   }
-  function closeLogs() {
-    setLogsOpen(false);
-    requestAnimationFrame(() => logsButtonRef.current?.focus());
-  }
   function closeDialog() {
     const focusId = editor?.id ?? deleting?.id;
     setEditor(null); setDeleting(null); setSetup(false); setToken(''); setFormError('');
@@ -263,14 +256,13 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
           <button type="button" className="dock-button dock-primary" onClick={() => { void categorize(); }} disabled={!loaded || busy || running || (live && (!state.accountEmail || !state.helperReady || !categories.length || !!missingDescriptions.length))}>Categorize emails</button>
           <label className="dock-days" htmlFor="dock-days">Last <output>{scopeDays}</output> days<input id="dock-days" name="days" aria-label="Days back" type="range" min="1" max="365" value={scopeDays} disabled={running || busy || (!!canResume && resumeRun)} onChange={event => { setDays(Number(event.target.value)); }} onPointerUp={() => { if (live) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} onKeyUp={event => { if (live && ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} /></label>
           {running && <button type="button" className="dock-button" disabled={busy || run?.status === 'stopping'} onClick={() => { void action({ type: 'dock:api', command: 'stop' }); }}>Stop</button>}
-          {live ? <div className="dock-controls-tools"><button type="button" className="dock-button" ref={logsButtonRef} onClick={() => setLogsOpen(true)}><ClipboardList size={16} aria-hidden="true" />Run logs</button><button type="button" className="dock-button dock-setup-button" onClick={() => { setFormError(''); setSetup(true); }}><Settings2 size={16} aria-hidden="true" />{state.accountEmail ? 'Connection' : 'Connect Gmail'}</button></div> : <span className="dock-demo-note">{mode === 'outlook' ? 'Outlook demo · account connection not available' : 'Preview · sample messages only'}</span>}
+          {live ? <button type="button" className="dock-button dock-setup-button" onClick={() => { setFormError(''); setSetup(true); }}><Settings2 size={16} aria-hidden="true" />{state.accountEmail ? 'Connection' : 'Connect Gmail'}</button> : <span className="dock-demo-note">{mode === 'outlook' ? 'Outlook demo · account connection not available' : 'Preview · sample messages only'}</span>}
         </div>
         <p className="dock-scope">Only messages currently in Inbox, received in the last {scopeDays} days. Runs only when you press Categorize emails.</p>
         {live && state.accountEmail && <p className="dock-account">Categorization account: {state.accountEmail}</p>}
         {!!missingDescriptions.length && <p className="dock-notice">Add descriptions to {missingDescriptions.map(category => category.title).join(', ')} using Edit before categorizing.</p>}
         {run && <div className="dock-run-status" role="status"><span>{runText}</span>{running && <progress aria-label="Categorization progress" max={Math.max(1, run.total)} value={run.phase === 'discovering' ? undefined : run.processed} />}<span>{canResume && <label className="dock-resume-choice"><input type="checkbox" checked={resumeRun} onChange={event => setResumeRun(event.target.checked)} />Resume unfinished or failed messages when I press Categorize emails</label>}</span>{(run.error || state.error) && <span className="dock-error">{run.error || state.error}</span>}</div>}
         {live && !state.accountEmail && <p className="dock-notice">Connect Gmail and pair the local helper to enable categorization.</p>}
-        {live && state.logWarning && <p className="dock-notice">{state.logWarning} Open Run logs to check storage.</p>}
         {announcement && <p className="dock-announcement" role="status">{announcement}</p>}
       </div>
       <dialog ref={dialogRef} className="dock-dialog" aria-labelledby="dock-dialog-title" onCancel={event => { if (busy) event.preventDefault(); else closeDialog(); }}>
@@ -278,7 +270,6 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
         {deleting && <><h2 id="dock-dialog-title">Delete {deleting.title}?</h2><p>Remove this category and its Dock-owned Gmail label from every message? Every email stays in Gmail, including Inbox messages. Unrelated labels stay unchanged.</p><p className="dock-field-help">Messages will no longer appear in this category. A future manual run can categorize them again.</p>{formError && <p className="dock-error" role="alert">{formError}</p>}<div className="dock-dialog-actions"><button type="button" ref={noRef} className="dock-button" disabled={busy} onClick={closeDialog}>No</button><button type="button" className="dock-button dock-primary" disabled={busy} onClick={() => { void deleteCategory(); }}>{busy ? 'Removing…' : 'Yes'}</button></div></>}
         {setup && <><h2 id="dock-dialog-title">Connect Dock</h2><p>Start the local helper, then paste the pairing code copied by helper setup or Copy-Pairing-Code.cmd.</p><form method="dialog" onSubmit={async event => { event.preventDefault(); if (await action({ type: 'dock:api', command: 'pairHelper', token: token.trim() }, 'Local helper paired.')) setToken(''); }}><label htmlFor="dock-helper-token">Helper pairing token<input id="dock-helper-token" name="pairingToken" type="password" autoComplete="off" value={token} required onChange={event => setToken(event.target.value)} /></label><button type="submit" className="dock-button" disabled={busy}>Pair helper</button></form><p className="dock-field-help">{state.helperReady ? 'Helper paired.' : 'Helper not paired.'} {state.oauthConfigured ? 'Google authorization is configured.' : 'Google OAuth setup is required; see INSTALL.md.'}</p><div className="dock-connect-row"><button type="button" className="dock-button dock-primary" disabled={busy || running || !state.oauthConfigured} onClick={() => { void action({ type: 'dock:api', command: 'connect' }, 'Gmail connection updated.'); }}>{state.accountEmail ? 'Reconnect Gmail' : 'Authorize Gmail'}</button>{state.accountEmail && <button type="button" className="dock-button" disabled={busy || running} onClick={() => { void action({ type: 'dock:api', command: 'disconnect' }, 'Gmail disconnected.'); }}>Disconnect</button>}</div>{state.accountEmail && <p className="dock-field-help">Connected as {state.accountEmail}.</p>}<p className="dock-field-help">Google Testing authorization expires after seven days. Return here to reconnect. Google grants the broader gmail.modify permission, which permits reading, changing and sending email. Dock only reads messages and changes its own category labels; it keeps Inbox and unrelated labels.</p><p className="dock-field-help">A manual run sends each selected email’s sender, subject and decoded body to Jev through your local helper for classification.</p><details className="dock-category-transfer"><summary>Import or export categories</summary><p className="dock-field-help">To move categories from the earlier prototype, paste its exported JSON here. Imported categories keep stable IDs. Review and fill in their descriptions before categorizing.</p><form method="dialog" onSubmit={async event => { event.preventDefault(); if (await action({ type: 'dock:api', command: 'importCategories', json: importJson }, 'Categories imported. Review their descriptions before running.')) setImportJson(''); }}><label htmlFor="dock-import-json">Category JSON<textarea id="dock-import-json" name="categoryJson" rows={4} value={importJson} required onChange={event => setImportJson(event.target.value)} /></label><button type="submit" className="dock-button" disabled={busy || running}>Import categories</button></form><label htmlFor="dock-export-json">Copy your category definitions<textarea id="dock-export-json" readOnly rows={4} value={JSON.stringify({ version: 2, categories: categories.map(({ id, title, description, icon, color }) => ({ id, title, description, icon, color })) }, null, 2)} onFocus={event => event.target.select()} /></label><p className="dock-field-help">The export contains definitions only. It contains no Gmail messages, credentials or label memberships.</p></details>{formError && <p className="dock-error" role="alert">{formError}</p>}<div className="dock-dialog-actions"><button type="button" className="dock-button" disabled={busy} onClick={closeDialog}>Done</button></div></>}
       </dialog>
-      {live && logsOpen && <RunLogs api={api!} currentRun={run} onClose={closeLogs} />}
     </>, controlsTarget)}
     {viewTarget && selectedId && createPortal(<>
       <style>{nativeStyles}</style>

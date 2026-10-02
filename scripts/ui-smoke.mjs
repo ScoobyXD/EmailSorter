@@ -51,70 +51,6 @@ try {
   await expect(page.getByRole('slider', { name: 'Days back' })).toBeDisabled();
   await page.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 1, succeeded: 1 }); });
   await expect(page.getByText('Categorizing: 1 of 2 messages processed.', { exact: true })).toBeVisible();
-  // The log viewer only reads synthetic saved events, including during a run.
-  const gmailListsBeforeLogs = await page.evaluate(() => window.fixture.listCalls);
-  const startsBeforeLogs = await page.evaluate(() => window.fixture.starts);
-  await page.getByRole('button', { name: 'Run logs', exact: true }).click();
-  const logs = page.getByRole('dialog', { name: 'Run logs', exact: true });
-  await expect(logs).toBeVisible();
-  await expect(logs.getByRole('combobox', { name: 'Run history', exact: true })).toHaveValue('fixture-run');
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(100);
-  await expect(logs.getByText('875', { exact: true })).toBeVisible();
-  await logs.getByText('How sorting works and uses Gmail quota', { exact: true }).click();
-  await expect(logs.getByText(/A normal sort uses about 25 Gmail units/)).toBeVisible();
-  await logs.getByText('How sorting works and uses Gmail quota', { exact: true }).click();
-  await logs.getByText('Gmail rate limit reached; completed labels are saved.', { exact: true }).click();
-  await expect(logs.getByLabel('Event 120 JSON', { exact: true })).toContainText('userRateLimitExceeded');
-  await logs.getByRole('combobox', { name: 'Show', exact: true }).selectOption('error');
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(1);
-  await logs.getByLabel('Search loaded events', { exact: true }).fill('fixture-request-120');
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(1);
-  await logs.getByLabel('Search loaded events', { exact: true }).fill('message-a');
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(1);
-  await logs.getByLabel('Search loaded events', { exact: true }).fill('does-not-exist');
-  await expect(logs.getByText('No loaded events match this filter.', { exact: true })).toBeVisible();
-  await logs.getByLabel('Search loaded events', { exact: true }).fill('');
-  await logs.getByRole('combobox', { name: 'Show', exact: true }).selectOption('all');
-  await logs.getByRole('button', { name: 'Load older', exact: true }).click();
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(115);
-  await page.evaluate(() => {
-    const seq = 121;
-    window.fixture.logEvents.push({ seq, id: `fixture-event-${seq}`, at: Date.now(), runId: 'fixture-run', scope: 'run', level: 'info', stage: 'labels', event: 'label.applied', message: 'Live fixture event arrived.', messageId: 'message-live' });
-    window.fixture.logPersistence.latestSequence = seq;
-  });
-  await expect(logs.getByText('Live fixture event arrived.', { exact: true })).toBeVisible();
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(116);
-  await logs.getByText('Log storage · Local copy pending', { exact: true }).click();
-  await expect(logs.getByText(/The browser retains up to 100,000 events/)).toBeVisible();
-  await expect(logs.getByText(/C:\\Dock-fixture/)).toBeVisible();
-  await logs.getByRole('button', { name: 'Retry local copy', exact: true }).click();
-  await expect(logs.getByText('Log storage · Local copy saved', { exact: true })).toBeVisible();
-  const downloadPromise = page.waitForEvent('download');
-  await logs.getByRole('button', { name: 'Export JSON', exact: true }).click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/^dock-logs-fixture-run-\d+\.json$/);
-  const exported = JSON.parse(await readFile(await download.path(), 'utf8'));
-  expect(exported.schemaVersion).toBe(1); expect(exported.runId).toBe('fixture-run'); expect(exported.events).toHaveLength(116);
-  await logs.getByRole('combobox', { name: 'Run history', exact: true }).selectOption('fixture-previous');
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(5);
-  await logs.getByRole('combobox', { name: 'Run history', exact: true }).selectOption('');
-  await expect(logs.getByRole('combobox', { name: 'Run history', exact: true })).toHaveValue('');
-  await expect(logs.getByRole('list', { name: 'Log events' }).locator(':scope > li')).toHaveCount(100);
-  await page.screenshot({ path: path.join(directory, 'run-logs.png'), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await logs.evaluate(element => element.scrollWidth <= element.clientWidth + 2)).toBe(true);
-  await page.screenshot({ path: path.join(directory, 'run-logs-mobile.png'), fullPage: true });
-  await page.setViewportSize({ width: 1100, height: 1000 });
-  await page.keyboard.press('Escape');
-  await expect(logs).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Run logs', exact: true })).toBeFocused();
-  expect(await page.evaluate(() => window.fixture.listCalls)).toBe(gmailListsBeforeLogs);
-  expect(await page.evaluate(() => window.fixture.starts)).toBe(startsBeforeLogs);
-  await page.getByRole('button', { name: 'Run logs', exact: true }).click();
-  await expect(logs).toBeVisible();
-  await logs.getByRole('button', { name: 'Close run logs' }).click();
-  await expect(logs).toBeHidden();
-
   await page.evaluate(() => { window.fixture.state.run.retryAt = Date.now() + 60000; });
   await expect(page.getByText(/Waiting for Gmail’s rate limit\. Retrying in \d+ seconds; 1 labeled/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
@@ -131,7 +67,7 @@ try {
   await page.screenshot({ path: path.join(directory, 'completed.png'), fullPage: true });
   await checkGmailNavigation(browser, fixtureHtml);
   expect(errors).toEqual([]); expect(unexpected).toEqual([]);
-  console.log(JSON.stringify({ result: 'PASS', checks: ['Run logs modal, pipeline explanation, totals, JSON details, filtering, paging, live updates, history, mirror sync, export, Escape/focus return; no Gmail reads', 'real-mode category link and account URL, unread message, paging dedupe, ordering', 'message loading error and explicit refresh recovery', 'OAuth error is actionable in Connection dialog', 'no classification before manual click, run progress, disabled edits during run, Stop', 'explicit resume keeps completed work and successful completion feedback', 'Gmail pointer/Enter conversation navigation preserves document, account path/query and browser Back', 'modified/middle clicks preserve selection and account-qualified link; mismatch/unknown account uses original link', 'account identity comes from native profile label/title or explicit email authuser; no classification on navigation', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', checks: ['real-mode category link and account URL, unread message, paging dedupe, ordering', 'message loading error and explicit refresh recovery', 'OAuth error is actionable in Connection dialog', 'no classification before manual click, run progress, disabled edits during run, Stop', 'explicit resume keeps completed work and successful completion feedback', 'Gmail pointer/Enter conversation navigation preserves document, account path/query and browser Back', 'modified/middle clicks preserve selection and account-qualified link; mismatch/unknown account uses original link', 'account identity comes from native profile label/title or explicit email authuser; no classification on navigation', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
 } catch (error) { console.error(JSON.stringify({ errors, unexpected })); throw error; }
 finally { await context.close(); await browser.close(); }
 

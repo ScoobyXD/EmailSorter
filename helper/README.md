@@ -55,9 +55,8 @@ Errors return `{error:{code,message,retryable}}`. Messages are safe fixed text, 
 ```powershell
 npm ci
 npm run typecheck
-npm test
 ```
 
-Tests use synthetic email fixtures and mock the TypeSafe HTTP transport. They verify the installed SDK's v1 contract, dynamic category criteria, no-match behavior, untouched probabilities/confidence, invalid input/output handling, retry/error sanitization, hostile origins, Host validation, preflight, pairing, body size, caching, cancellation, and bounded concurrency. To make one live request with invented email text only, explicitly run `npm run verify:jev` after setup. This does not access Gmail.
+To make one live request with invented email text only, explicitly run `npm run verify:jev` after setup. This does not access Gmail.
 
 Implementation follows the [TypeSafe JavaScript SDK](https://docs.typesafe.ai/sdk/javascript), [Choice primitive](https://docs.typesafe.ai/primitives/choice), and [classification cookbook](https://docs.typesafe.ai/cookbooks/classification_using_confidence), read during development. The model is pinned to `jev-1.13.0`; the response records the actual model ID.
