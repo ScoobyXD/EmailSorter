@@ -1,4 +1,5 @@
 import type { DockCategory } from '../gmail/protocol';
+import { COLORS, createDefaultCategories } from '../gmail/model';
 
 /** Storage used only by the local preview and the Outlook demo. */
 export interface DemoStorage {
@@ -7,14 +8,6 @@ export interface DemoStorage {
 }
 
 export interface DemoState { version: 2; categories: DockCategory[] }
-
-const demoCategories: DockCategory[] = [
-  { id: 'customs', title: 'Customs', description: 'Customs clearance, import and export paperwork, shipment holds and duties.', icon: 'shield', color: '#fbe983' },
-  { id: 'shipping', title: 'Shipping', description: 'Freight bookings, pickups, deliveries, tracking and transport arrangements.', icon: 'truck', color: '#b6cff5' },
-  { id: 'purchasing', title: 'Purchase orders', description: 'Purchase orders, order confirmations, changes, approvals and lead times.', icon: 'clipboard', color: '#d0bcf1' },
-  { id: 'vendors', title: 'Vendors', description: 'Supplier relationships, product quotes, pricing and vendor updates.', icon: 'factory', color: '#a0eac9' },
-  { id: 'invoices', title: 'Invoices', description: 'Invoices, payment requests, billing questions and receipts.', icon: 'receipt', color: '#f6c5be' },
-];
 
 const samples = [
   ['Nina Patel', 'Shipment held — commercial invoice needed', 'Container MSKU 482910 needs a corrected invoice.', 'customs', '8:42 am'],
@@ -29,7 +22,7 @@ const samples = [
 export const sampleMessages = samples.map(([sender, subject, preview, categoryId, time], index) => ({ id: `dock-demo-${index + 1}`, sender, subject, preview, body: `Hi Alex,\n\n${preview}\n\nThanks,\n${sender}`, categoryId, time, receivedOrder: samples.length - index } as const));
 
 export function createInitialState(): DemoState {
-  return { version: 2, categories: demoCategories.map(category => ({ ...category })) };
+  return { version: 2, categories: createDefaultCategories() };
 }
 
 /** Keep prototype category IDs and names. Ignore obsolete sample metadata. */
@@ -41,8 +34,7 @@ export function migrateDemoState(value: unknown): DemoState {
     if (!item || typeof item.id !== 'string' || seen.has(item.id)) continue;
     const title = typeof item.title === 'string' ? item.title : item.name;
     if (typeof title !== 'string' || !title.trim()) continue;
-    const fallback = demoCategories.find(category => category.id === item.id);
-    categories.push({ id: item.id, title: title.trim().slice(0, 64), description: typeof item.description === 'string' ? item.description : fallback?.description ?? '', icon: typeof item.icon === 'string' ? item.icon : fallback?.icon ?? 'tag', color: /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : fallback?.color ?? '#b6cff5' });
+    categories.push({ id: item.id, title: title.trim().slice(0, 64), description: typeof item.description === 'string' ? item.description : '', icon: typeof item.icon === 'string' ? item.icon : 'tag', color: /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : COLORS[categories.length % COLORS.length]! });
     seen.add(item.id);
   }
   return { version: 2, categories };

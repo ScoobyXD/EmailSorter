@@ -5,8 +5,9 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import { Workspace, type DockApi } from '../../src/ui/Workspace';
 import { attachGmailLayout } from '../../src/integration/gmail-layout';
+import { attachGmailSidebar } from '../../src/integration/gmail-sidebar';
 import { attachOutlookLayout, type OutlookViewRect } from '../../src/integration/outlook-layout';
-import { extensionStorage } from '../../src/storage';
+import { extensionStorage, gmailSidebarStorage } from '../../src/storage';
 import './shell.css';
 
 const gmailApi: DockApi = async (request) => await browser.runtime.sendMessage(request);
@@ -27,6 +28,10 @@ function ExtensionShell({ tabsHost, tabsTarget, controlsHost, controlsTarget }: 
       ? attachGmailLayout({ tabsHost, controlsHost, onNativeSelect: resetSelection })
       : attachOutlookLayout({ tabsHost, onViewRect: setViewRect, onNativeSelect: resetSelection });
   }, [tabsHost, controlsHost, resetSelection]);
+
+  useEffect(() => {
+    if (isGmail) return attachGmailSidebar(gmailSidebarStorage);
+  }, []);
 
   useEffect(() => {
     const listener = (message: unknown, _sender: unknown, respond: (response: unknown) => void) => {
@@ -66,15 +71,17 @@ export default defineContentScript({
     const controlsShadow = controlsHost.attachShadow({ mode: 'open' });
     const controlsTarget = document.createElement('div');
     controlsShadow.append(controlsTarget);
+    const isolatedEvents = ['click', 'dblclick', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'keydown', 'keyup', 'keypress'];
     for (const root of [shadow, controlsShadow]) {
-      for (const type of ['click', 'dblclick', 'keydown', 'keyup', 'keypress']) {
+      // Let controls handle input before Gmail can cancel focus or native selects.
+      for (const type of isolatedEvents) {
         root.addEventListener(type, (event) => event.stopPropagation());
       }
     }
     ctx.onInvalidated(() => { tabsHost.remove(); controlsHost.remove(); });
     const ui = await createShadowRootUi(ctx, {
       name: 'dock-inbox-prototype', position: 'inline', anchor: 'body',
-      isolateEvents: ['click', 'keydown', 'keyup', 'keypress'],
+      isolateEvents: isolatedEvents,
       onMount(container) {
         const element = document.createElement('div');
         container.append(element);

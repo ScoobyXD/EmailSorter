@@ -204,6 +204,15 @@ async function checkStickyToolbar(page, scenario, scrollTop) {
 async function checkNestedGmailToolbar() {
   const page = await context.newPage();
   await page.goto('https://mail.google.com/mail/u/0/?nestedToolbar=1#inbox');
+  await expect(page.getByRole('tab', { name: 'Edit Me!', exact: true })).toHaveCount(3);
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  // Retain the wider layout and migration coverage with saved category definitions.
+  await worker.evaluate(async () => {
+    const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
+    state.categories = [['customs', 'Customs'], ['shipping', 'Shipping'], ['purchasing', 'Purchase orders'], ['vendors', 'Vendors'], ['invoices', 'Invoices']].map(([id, title]) => ({ id, title, description: `${title} fixture messages.`, icon: 'tag', color: '#c9daf8' }));
+    await chrome.storage.local.set({ 'dock-gmail-v2': state });
+  });
+  await page.reload();
   await writeFile(path.join(artifacts, 'nested-toolbar-fixture.html'), nestedToolbarFixture());
   await assess(page, 'nested-toolbar-wide');
   await expect(page.locator('.aqK > dock-inbox-controls')).toHaveAttribute('data-dock-toolbar-placement', 'native');
@@ -229,7 +238,6 @@ async function checkNestedGmailToolbar() {
   await checkStickyToolbar(scrolledPage, 'nested-toolbar-initially-scrolled', 800);
   await scrolledPage.close();
 
-  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
   const error = '3 email(s) failed. Completed labels are saved; retry resumes only unfinished emails. Email body exceeds 60,000 characters. This email was left unchanged.';
   await worker.evaluate(async error => {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];

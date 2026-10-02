@@ -1,5 +1,5 @@
 import { decodedBody, header, type GmailFullMessage } from './mime';
-import { archiveRun, COLORS, initialState, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
+import { archiveRun, COLORS, initialState, isStarterCategory, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
 import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse } from './protocol';
 import { GMAIL_QUOTA_METHODS } from './quota';
 import { ApiError, GmailNetworkError, GmailRequests, RunStoppedError } from './requests';
@@ -24,6 +24,7 @@ const sameLabelName = (first: string, second: string) => first.toLowerCase() ===
 function validateCategoryTitles(categories: DockCategory[]): void {
   const names = new Set(['uncategorized']);
   for (const category of categories) {
+    if (isStarterCategory(category)) continue;
     const name = labelName(category).toLowerCase();
     if (names.has(name)) throw new Error(`A category already uses the title "${category.title}". Choose another title.`);
     names.add(name);
@@ -177,12 +178,13 @@ export class GmailEngine {
       const title = parsed.version === 1 ? item.name : item.title;
       if (typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(item.id) || ['__proto__', 'constructor', 'prototype', '__uncategorized__'].includes(item.id) || typeof title !== 'string' || !title.trim() || title.length > 120 || /[\r\n]/.test(title)) throw new Error('Imported categories need valid IDs and titles.');
       if (item.id === 'urgent' || item.id === UNCATEGORIZED) continue;
-      if (seen.has(item.id) || categories.some((category) => sameLabelName(category.title, title.trim()))) throw new Error('Imported category IDs and titles must be unique.');
+      if (seen.has(item.id)) throw new Error('Imported category IDs must be unique.');
       const description = parsed.version === 1 ? '' : item.description;
       if (typeof description !== 'string' || description.length > 1000) throw new Error('Imported descriptions must be text under 1,000 characters.');
       seen.add(item.id);
       categories.push({ id: item.id, title: title.trim(), description: description.trim(), icon: typeof item.icon === 'string' ? item.icon.slice(0, 32) : 'tag', color: COLORS.includes(item.color) ? item.color : COLORS[categories.length % COLORS.length] });
     }
+    validateCategoryTitles(categories);
     await this.update((state) => {
       if (active(state.run)) throw new Error('Stop the run before importing categories.');
       // Merge definitions; never detach or delete existing labels merely because an export omitted them.
@@ -194,7 +196,6 @@ export class GmailEngine {
           if (current.labelId && current.title !== category.title) throw new Error('Rename existing connected categories with Edit before importing.');
           merged[index] = { ...category, color: current.color, labelId: current.labelId, labelName: current.labelId ? current.labelName : undefined };
         } else {
-          if (merged.some((current) => sameLabelName(current.title, category.title))) throw new Error(`A different category already uses the title ${category.title}. Rename it first.`);
           merged.push(category);
         }
       }
@@ -264,9 +265,10 @@ export class GmailEngine {
     if (active(before.run)) throw new Error('Stop the run before editing categories.');
     const old = before.categories.find((category) => category.id === input.id);
     if (input.id && !old) throw new Error('Category no longer exists.');
-    if (before.categories.some((category) => category.id !== input.id && sameLabelName(category.title, title))) throw new Error('A category already uses that title.');
+    if (input.color !== undefined && input.color !== old?.color && !COLORS.includes(input.color)) throw new Error('Choose one of the available category colors.');
+    if (old && isStarterCategory({ id: old.id, title })) throw new Error('Replace Edit Me! with a category title before saving.');
     if (!input.id && before.categories.length >= 50) throw new Error('This prototype supports up to 50 categories.');
-    const category: DockCategory = { id: old?.id || crypto.randomUUID(), title, description, icon: input.icon?.slice(0, 32) || old?.icon || 'tag', color: old?.color || COLORS[before.categories.length % COLORS.length]!, ...(old?.labelId ? { labelId: old.labelId } : {}) };
+    const category: DockCategory = { id: old?.id || crypto.randomUUID(), title, description, icon: input.icon?.slice(0, 32) || old?.icon || 'tag', color: input.color ?? old?.color ?? COLORS[before.categories.length % COLORS.length]!, ...(old?.labelId ? { labelId: old.labelId } : {}) };
     validateCategoryTitles(old ? before.categories.map((item) => item.id === old.id ? category : item) : [...before.categories, category]);
     if (old?.labelId) {
       await this.requireAccount();
@@ -296,6 +298,7 @@ export class GmailEngine {
   private validateRun(state: StoredState): void {
     if (!state.helperToken) throw new Error('Start the local helper and paste its pairing token first.');
     if (!state.categories.length) throw new Error('Create at least one category before categorizing.');
+    if (state.categories.some(isStarterCategory)) throw new Error('Rename each Edit Me! category and add its description before categorizing.');
     validateCategoryTitles(state.categories);
     const missing = state.categories.filter((category) => !category.description.trim());
     if (missing.length) throw new Error(`Add descriptions before categorizing: ${missing.map((category) => category.title).join(', ')}.`);

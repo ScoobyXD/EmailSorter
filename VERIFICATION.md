@@ -1,5 +1,33 @@
 # Dock verification — October 2, 2026
 
+## 0.4.9 Category setup and compact editor
+
+1. TypeScript, the production build, and packaging pass.
+2. Fresh Gmail installs, preview, and Outlook use the same three blank `Edit Me!` categories.
+3. `scripts/smoke.mjs` passes independent starter edits, four saved fields, compact placement, dismissal, keyboard focus, and narrow screens.
+4. `scripts/ui-smoke.mjs` passes the existing Gmail navigation, connection, progress, and quota checks.
+5. `scripts/clipping-smoke.mjs` passes 43 scenarios with saved category fixtures.
+6. `scripts/sidebar-smoke.mjs` passes 17 scenarios, including pointer exit and keyboard focus after dragging.
+7. Editor screenshots: `test-results/category-editor-1.png` and `test-results/category-editor-mobile.png`.
+8. Sidebar evidence: `test-results/sidebar/0.4.9-1790983695701/report.json`.
+9. Clipping evidence: `test-results/clipping/0.4.9-1790983722736/report.json`.
+10. No unit tests were created or run. Browser checks use synthetic content and do not modify real mail.
+11. Business rules: `docs/tests/category-editor.md` and `docs/tests/gmail-sidebar.md`.
+12. Editing preserves older saved colors. Switching directly between editors discards the unsaved draft and follows the new category.
+
+## 0.4.8 Gmail sidebar resizing
+
+1. TypeScript, the production build, and packaging pass.
+2. `scripts/sidebar-smoke.mjs` passes 15 browser scenarios with the built extension and synthetic Gmail content.
+3. Dragging, arrow keys, Home, End, Escape cancellation, reload, collapse, expansion, routes, and navigation replacement pass.
+4. Narrow windows limit the displayed width. Wider windows restore the saved preference. Double-click and Enter reset it.
+5. `scripts/clipping-smoke.mjs --nested-toolbar` passes all 11 toolbar scenarios.
+6. Sidebar evidence: `test-results/sidebar/0.4.8-1790983111133/report.json`.
+7. Toolbar evidence: `test-results/clipping/0.4.8-1790983134012/report.json`.
+8. The current Gmail sidebar structure was inspected. The updated extension still requires a Chrome reload before live use.
+9. No unit tests were created or run. No real mail was changed by these checks.
+10. Business rules: `docs/tests/gmail-sidebar.md`.
+
 ## 0.4.7 Gmail quota observability
 
 1. The extension TypeScript check and production build pass.

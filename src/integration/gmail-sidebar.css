@@ -1,0 +1,63 @@
+[data-dock-sidebar-width] {
+  width: var(--dock-sidebar-width) !important;
+  min-width: var(--dock-sidebar-width) !important;
+  max-width: var(--dock-sidebar-width) !important;
+  flex-basis: auto !important;
+  transition: none !important;
+}
+/* Gmail fixes these label containers to 240px inside its 256px sidebar. */
+[data-dock-sidebar-width] .wT {
+  width: calc(100% - 16px) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+[data-dock-sidebar-handle] {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: -4px;
+  width: 8px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+[data-dock-sidebar-handle]::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+  background: #747775;
+  opacity: .25;
+}
+[data-dock-sidebar-handle]::after {
+  content: '';
+  position: absolute;
+  top: calc(50% - 20px);
+  left: 2px;
+  width: 4px;
+  height: 40px;
+  border-radius: 4px;
+  background: #747775;
+}
+[data-dock-sidebar-handle]:hover::before,
+[data-dock-sidebar-handle]:focus-visible:not([data-dock-sidebar-pointer-focus])::before,
+[data-dock-sidebar-dragging] [data-dock-sidebar-handle]::before {
+  background: #0b57d0;
+  opacity: 1;
+}
+[data-dock-sidebar-handle]:focus-visible:not([data-dock-sidebar-pointer-focus]) {
+  outline: 2px solid #0b57d0;
+  outline-offset: -2px;
+}
+body[data-dock-sidebar-dragging],
+body[data-dock-sidebar-dragging] * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+@media (forced-colors: active) {
+  [data-dock-sidebar-handle]::before,
+  [data-dock-sidebar-handle]::after { background: ButtonText; opacity: 1; }
+  [data-dock-sidebar-handle]:focus-visible:not([data-dock-sidebar-pointer-focus]) { outline-color: Highlight; }
+}

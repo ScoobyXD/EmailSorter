@@ -9,6 +9,7 @@
 .dock-native-tab-item.is-system .dock-native-tab { padding-inline-end: 12px; }
 .dock-native-tab-item .dock-native-tab > span { overflow-wrap: anywhere; }
 .dock-native-tab svg, .dock-native-add svg { display: block; flex-shrink: 0; width: 18px; height: 18px; color: inherit; }
+.dock-native-tab .dock-category-icon { width: 22px; height: 22px; padding: 2px; border-radius: 4px; color: #444746; }
 .dock-native-tab-item .dock-native-tab:hover, .dock-native-add:hover { background: rgba(60, 64, 67, .04); }
 .dock-tab-actions { position: absolute; inset-inline-end: 3px; top: 0; height: 100%; display: flex; align-items: center; opacity: 0; pointer-events: none; }
 .dock-native-tab-item:hover .dock-tab-actions, .dock-native-tab-item:focus-within .dock-tab-actions, .dock-native-tab-item.is-active .dock-tab-actions { opacity: 1; pointer-events: auto; }
@@ -67,6 +68,20 @@
 .dock-dialog input:user-invalid, .dock-dialog textarea:user-invalid { border-color: #b3261e; }
 .dock-dialog .dock-field-help { font-size: 12px; color: #5f6368; line-height: 1.6; margin: 7px 0 13px; }
 .dock-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.dock-dialog.dock-category-editor { inset: auto; margin: 0; width: 320px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.35; box-shadow: 0 4px 16px #20212430, 0 1px 3px #20212420; z-index: 1000; }
+.dock-category-editor::backdrop { background: transparent; pointer-events: none; }
+.dock-category-editor form { min-width: 0; }
+.dock-category-editor label { gap: 3px; margin: 0 0 8px; font-size: 12px; }
+.dock-category-editor input, .dock-category-editor select, .dock-category-editor textarea { padding: 5px 7px; font: 13px/1.4 Arial, sans-serif; }
+.dock-category-editor textarea { min-height: 60px; max-height: 160px; }
+.dock-editor-options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.dock-editor-select { position: relative; display: block; }
+.dock-editor-select > svg, .dock-editor-select > .dock-color-swatch { position: absolute; inset-inline-start: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.dock-category-editor .dock-editor-select select { padding-inline-start: 30px; }
+.dock-color-swatch { width: 14px; height: 14px; border: 1px solid #0002; border-radius: 3px; }
+.dock-category-editor .dock-dialog-actions { margin-top: 10px; gap: 6px; }
+.dock-category-editor .dock-button { min-height: 30px; padding: 4px 9px; font-size: 12px; }
+.dock-category-editor .dock-error { margin: 4px 0 8px; font-size: 12px; }
 .dock-connect-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
 .dock-error { color: #b3261e; font-size: 13px; }
 .dock-native-sr-only { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; pointer-events: none !important; }

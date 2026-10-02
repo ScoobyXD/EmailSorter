@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ClipboardList, Factory, Inbox, Plus, ReceiptText, Settings2, ShieldCheck, ShoppingBag, Package, Users, Star, Tag, Truck, X, type LucideIcon } from 'lucide-react';
 import { createInitialState, migrateDemoState, sampleMessages, type DemoState, type DemoStorage } from './data';
 import { GmailUsage } from './GmailUsage';
 import { UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type DockState } from '../gmail/protocol';
+import { COLORS, DEFAULT_CATEGORY_TITLE, isStarterCategory } from '../gmail/model';
 import { canOpenGmailInPlace, getGmailLabelFromRoute, gmailLabelHash, openGmailRoute } from '../integration/gmail-navigation';
 import nativeStyles from './workspace.css?inline';
 
@@ -18,9 +19,10 @@ interface WorkspaceProps {
   onSelectionChange?: (selected: boolean) => void;
   resetSelectionToken?: number;
 }
-interface Editor extends Pick<DockCategory, 'title' | 'description' | 'icon'> { id?: string }
+interface Editor extends Pick<DockCategory, 'title' | 'description' | 'icon' | 'color'> { id?: string }
 const categoryIcons: Record<string, LucideIcon> = { shield: ShieldCheck, truck: Truck, clipboard: ClipboardList, factory: Factory, receipt: ReceiptText, 'shopping-bag': ShoppingBag, package: Package, users: Users, star: Star, tag: Tag, customs: ShieldCheck, shipping: Truck, purchasing: ClipboardList, vendors: Factory, invoices: ReceiptText };
 const iconNames = ['tag', 'shield', 'truck', 'clipboard', 'factory', 'receipt', 'star', 'package', 'shopping-bag', 'users'];
+const colorNames = ['Blue', 'Purple', 'Yellow', 'Pink', 'Green', 'Orange', 'Gray'];
 const EMPTY_STATE: DockState = { version: 2, categories: [], daysBack: 30, helperReady: false, oauthConfigured: false };
 
 /** Live category tabs open Gmail labels. Only demos render a Dock message list. */
@@ -44,6 +46,9 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
   const [days, setDays] = useState(30);
   const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const editorAnchorRef = useRef<HTMLElement | null>(null);
+  const editorTriggerRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const noRef = useRef<HTMLButtonElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -57,8 +62,8 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
   const running = run?.status === 'running' || run?.status === 'stopping';
   const canResume = run?.status === 'paused' || run?.status === 'failed' || (run?.status === 'completed' && run.failed > 0);
   const scopeDays = canResume && resumeRun ? run!.daysBack : days;
-  const missingDescriptions = categories.filter(category => !category.description.trim());
-  const dialogOpen = !!editor || !!deleting || setup || usageOpen;
+  const incompleteCategories = categories.filter(category => isStarterCategory(category) || !category.description.trim());
+  const dialogOpen = !!deleting || setup || usageOpen;
 
   useEffect(() => {
     let active = true;
@@ -114,9 +119,66 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     if (!dialog) return;
     if (dialogOpen && !dialog.open) dialog.showModal();
     if (!dialogOpen && dialog.open) dialog.close();
-    if (editor) titleRef.current?.focus();
     if (deleting) noRef.current?.focus();
-  }, [dialogOpen, editor?.id, !!deleting]);
+  }, [dialogOpen, !!deleting]);
+
+  useLayoutEffect(() => {
+    const panel = editorRef.current;
+    const anchor = editorAnchorRef.current;
+    if (!editor || !panel || !anchor) return;
+    const nativePopover = 'popover' in HTMLElement.prototype;
+    if (nativePopover) panel.showPopover();
+    let frame = 0;
+    const position = () => {
+      frame = 0;
+      if (!anchor.isConnected || !anchor.getClientRects().length) { closeEditor(false); return; }
+      const target = anchor.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const left = viewport?.offsetLeft ?? 0;
+      const top = viewport?.offsetTop ?? 0;
+      const right = left + (viewport?.width ?? innerWidth);
+      const bottom = top + (viewport?.height ?? innerHeight);
+      const box = panel.getBoundingClientRect();
+      const below = target.bottom + 4;
+      const above = target.top - box.height - 4;
+      const y = below + box.height <= bottom - 8 || above < top + 8 ? below : above;
+      panel.style.left = `${Math.max(left + 8, Math.min(target.left, right - box.width - 8))}px`;
+      panel.style.top = `${Math.max(top + 8, Math.min(y, bottom - box.height - 8))}px`;
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(position); };
+    const dismissOutside = (event: PointerEvent) => {
+      if (!event.composedPath().includes(panel) && !event.composedPath().includes(editorTriggerRef.current!)) closeEditor(false);
+    };
+    const closeOnRoute = () => closeEditor(false);
+    position();
+    titleRef.current?.focus({ preventScroll: true });
+    if (editor.title === DEFAULT_CATEGORY_TITLE) titleRef.current?.select();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(anchor);
+    observer.observe(panel);
+    if (tabsTarget) observer.observe(tabsTarget);
+    // Native popovers escape Gmail's clipping wrappers. Older browsers retain
+    // the same fixed placement and use an outside-pointer listener to dismiss.
+    if (!nativePopover) document.addEventListener('pointerdown', dismissOutside, true);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, true);
+    window.addEventListener('hashchange', closeOnRoute);
+    viewportListeners(true);
+    function viewportListeners(add: boolean) {
+      if (add) { window.visualViewport?.addEventListener('resize', schedule); window.visualViewport?.addEventListener('scroll', schedule); }
+      else { window.visualViewport?.removeEventListener('resize', schedule); window.visualViewport?.removeEventListener('scroll', schedule); }
+    }
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+      if (nativePopover && panel.matches(':popover-open')) panel.hidePopover();
+      document.removeEventListener('pointerdown', dismissOutside, true);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('hashchange', closeOnRoute);
+      viewportListeners(false);
+    };
+  }, [editor?.id, !!editor, tabsTarget]);
 
   useEffect(() => {
     if (!live) return;
@@ -167,6 +229,8 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
   }
   function selectSection(id: string) {
     setFormError('');
+    const category = categories.find(item => item.id === id);
+    if (category && isStarterCategory(category)) { editCategory(category); return; }
     if (live) {
       if (!state.accountEmail) { setSetup(true); return; }
       const label = id === UNCATEGORIZED ? state.uncategorizedLabelName : categories.find(category => category.id === id)?.labelName;
@@ -181,25 +245,37 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     if (live && state.accountEmail) openGmailRoute(state.accountEmail, '#inbox');
   }
   function closeDialog() {
-    const focusId = editor?.id ?? deleting?.id;
-    setEditor(null); setDeleting(null); setSetup(false); setUsageOpen(false); setToken(''); setFormError('');
+    const focusId = deleting?.id;
+    setDeleting(null); setSetup(false); setUsageOpen(false); setToken(''); setFormError('');
     requestAnimationFrame(() => {
       const target = usageOpen ? usageRef.current : setup ? controlsTarget?.querySelector<HTMLButtonElement>('.dock-setup-button')
         : focusId ? tabRefs.current.get(focusId) : addRef.current;
       target?.focus({ preventScroll: true });
     });
   }
-  function editCategory(category?: DockCategory) {
+  function closeEditor(restoreFocus = true) {
+    setEditor(null); setFormError('');
+    if (restoreFocus) {
+      const trigger = editorTriggerRef.current;
+      requestAnimationFrame(() => { if (trigger?.isConnected) trigger.focus({ preventScroll: true }); });
+    }
+  }
+  function editCategory(category?: DockCategory, trigger?: HTMLElement) {
+    if (busy || running) return;
     setFormError('');
-    setEditor(category ? { id: category.id, title: category.title, description: category.description, icon: category.icon } : { title: '', description: '', icon: 'tag' });
+    const tab = category ? tabRefs.current.get(category.id) : addRef.current;
+    editorAnchorRef.current = tab?.closest<HTMLElement>('.dock-native-tab-item') ?? tab ?? null;
+    editorTriggerRef.current = trigger ?? tab ?? null;
+    setEditor(category ? { id: category.id, title: category.title, description: category.description, icon: category.icon, color: category.color } : { title: '', description: '', icon: 'tag', color: COLORS[categories.length % COLORS.length]! });
   }
   async function saveCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editor || busy) return;
     const title = editor.title.trim();
     const description = editor.description.trim();
-    if (!title || !description) { setFormError('Enter a title and a description so emails can be matched to this category.'); return; }
-    if (categories.some(category => category.id !== editor.id && category.title.toLocaleLowerCase() === title.toLocaleLowerCase()) || title.toLocaleLowerCase() === 'uncategorized') { setFormError('A category with that title already exists.'); titleRef.current?.focus(); return; }
+    if (!title || !description) { setFormError('Enter a name and description.'); return; }
+    if (title.toLocaleLowerCase() === DEFAULT_CATEGORY_TITLE.toLocaleLowerCase()) { setFormError('Replace Edit Me! with a category name.'); titleRef.current?.focus(); return; }
+    if (categories.some(category => category.id !== editor.id && category.title.toLocaleLowerCase() === title.toLocaleLowerCase()) || title.toLocaleLowerCase() === 'uncategorized') { setFormError('A category with that name already exists.'); titleRef.current?.focus(); return; }
     setBusy(true); setFormError('');
     try {
       if (live) {
@@ -208,10 +284,10 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
         if (selectedId === editor.id && renamed && state.accountEmail) openGmailRoute(state.accountEmail, gmailLabelHash(renamed));
       }
       else {
-        const category: DockCategory = { id: editor.id ?? `custom-${crypto.randomUUID()}`, title, description, icon: editor.icon, color: categories.find(item => item.id === editor.id)?.color ?? '#b6cff5' };
+        const category: DockCategory = { id: editor.id ?? `custom-${crypto.randomUUID()}`, title, description, icon: editor.icon, color: editor.color };
         await saveDemo({ ...demo, categories: editor.id ? categories.map(item => item.id === editor.id ? category : item) : [...categories, category] });
       }
-      setAnnouncement(`${title} saved.`); closeDialog();
+      setAnnouncement(`${title} saved.`); closeEditor();
     } catch (error) { setFormError(error instanceof Error ? error.message : 'The category could not be saved.'); }
     finally { setBusy(false); }
   }
@@ -254,13 +330,14 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     : run.status === 'completed' ? 'Done'
       : `${run.processed}/${run.total} processed · ${run.status === 'stopping' ? 'Stopping…' : run.status === 'paused' ? 'Stopped' : 'Interrupted'}`;
   const runText = run ? [`${run.succeeded} labeled`, runDetails, ...(run.skipped ? [`${run.skipped} skipped`] : []), ...(run.failed ? [`${run.failed} failed`] : [])].join(' · ') : '';
-  const toolbarError = (!dialogOpen && formError) || run?.error || state.error;
+  const toolbarError = (!dialogOpen && !editor && formError) || run?.error || state.error;
+  const EditorIcon = categoryIcons[editor?.icon ?? 'tag'] ?? Tag;
 
   function renderTab(category: DockCategory, system = false) {
     const Icon = categoryIcons[category.icon] ?? Tag;
     return <div className={`dock-native-tab-item ${selectedId === category.id ? 'is-active' : ''} ${system ? 'is-system' : ''}`} key={category.id}>
-      <button type="button" className="dock-native-tab" role="tab" aria-label={category.title} aria-selected={selectedId === category.id} tabIndex={selectedId === category.id || (!selectedId && category.id === (categories[0]?.id ?? UNCATEGORIZED)) ? 0 : -1} disabled={!loaded} ref={element => { if (element) tabRefs.current.set(category.id, element); else tabRefs.current.delete(category.id); }} onClick={() => selectSection(category.id)} onDoubleClick={() => { if (!system && !running) editCategory(category); }} onKeyDown={event => handleTabKey(event, category.id)}><Icon size={18} aria-hidden="true" /><span>{category.title}</span></button>
-      {!system && <span className="dock-tab-actions"><button type="button" aria-label={`Edit ${category.title}`} disabled={running || busy} onClick={() => editCategory(category)}>Edit</button><button type="button" className="dock-tab-delete" aria-label={`Delete ${category.title}`} disabled={running || busy} onClick={() => { setFormError(''); setDeleting(category); }}><X size={14} aria-hidden="true" /></button></span>}
+      <button type="button" className="dock-native-tab" role="tab" aria-label={category.title} aria-selected={selectedId === category.id} tabIndex={selectedId === category.id || (!selectedId && category.id === (categories[0]?.id ?? UNCATEGORIZED)) ? 0 : -1} disabled={!loaded} ref={element => { if (element) tabRefs.current.set(category.id, element); else tabRefs.current.delete(category.id); }} onClick={() => selectSection(category.id)} onDoubleClick={() => { if (!system && !running) editCategory(category); }} onKeyDown={event => handleTabKey(event, category.id)}><Icon className={system ? undefined : 'dock-category-icon'} style={system ? undefined : { backgroundColor: category.color }} size={18} aria-hidden="true" /><span>{category.title}</span></button>
+      {!system && <span className="dock-tab-actions"><button type="button" aria-label={`Edit ${category.title}`} aria-haspopup="dialog" aria-expanded={editor?.id === category.id} disabled={running || busy} onClick={event => editCategory(category, event.currentTarget)}>Edit</button><button type="button" className="dock-tab-delete" aria-label={`Delete ${category.title}`} disabled={running || busy} onClick={() => { closeEditor(false); setFormError(''); setDeleting(category); }}><X size={14} aria-hidden="true" /></button></span>}
     </div>;
   }
 
@@ -270,25 +347,37 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
       <div className="dock-workspace-controls">
         <div className="dock-native-tabs" role="tablist" aria-label="Dock categories">{live && <button type="button" className="dock-native-add" aria-label="Back to Gmail inbox" title="Back to Gmail inbox" disabled={!loaded || !state.accountEmail} onClick={backToInbox}><Inbox size={18} aria-hidden="true" /></button>}{categories.map(category => renderTab(category))}{renderTab({ id: UNCATEGORIZED, title: 'Uncategorized', description: '', icon: 'tag', color: '#cccccc' }, true)}<button type="button" className="dock-native-add" aria-label="Add category" ref={addRef} disabled={!loaded || running || busy || categories.length >= 50} onClick={() => editCategory()}><Plus size={20} aria-hidden="true" /></button></div>
       </div>
+      {editor && <div ref={editorRef} id="dock-category-editor" popover="auto" role="dialog" aria-labelledby="dock-editor-title" className="dock-dialog dock-category-editor" onToggle={event => { if (event.newState === 'closed') closeEditor(false); }} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeEditor(); } }}>
+        <form onSubmit={event => { void saveCategory(event); }}>
+          <h2 id="dock-editor-title" className="dock-native-sr-only">{editor.id ? 'Edit category' : 'Create category'}</h2>
+          <div className="dock-editor-options">
+            <label htmlFor="dock-category-icon">Icon<span className="dock-editor-select"><EditorIcon size={16} aria-hidden="true" /><select id="dock-category-icon" name="icon" value={iconNames.includes(editor.icon) ? editor.icon : 'tag'} disabled={busy} onChange={event => setEditor({ ...editor, icon: event.target.value })}>{iconNames.map(icon => <option key={icon} value={icon}>{icon[0]!.toUpperCase() + icon.slice(1).replace('-', ' ')}</option>)}</select></span></label>
+            <label htmlFor="dock-category-color">Color<span className="dock-editor-select"><span className="dock-color-swatch" style={{ backgroundColor: editor.color }} aria-hidden="true" /><select id="dock-category-color" name="color" value={editor.color} disabled={busy} onChange={event => setEditor({ ...editor, color: event.target.value })}>{!COLORS.includes(editor.color) && <option value={editor.color}>Current color</option>}{COLORS.map((color, index) => <option key={color} value={color}>{colorNames[index]}</option>)}</select></span></label>
+          </div>
+          <label htmlFor="dock-category-title">Name<input ref={titleRef} id="dock-category-title" name="title" required maxLength={64} autoComplete="off" disabled={busy} value={editor.title} onChange={event => { setEditor({ ...editor, title: event.target.value }); setFormError(''); }} /></label>
+          <label htmlFor="dock-category-description">Description<textarea id="dock-category-description" name="description" required maxLength={1000} rows={2} placeholder="Which emails belong here?" disabled={busy} value={editor.description} onChange={event => { setEditor({ ...editor, description: event.target.value }); setFormError(''); }} /></label>
+          {formError && <p className="dock-error" role="alert">{formError}</p>}
+          <div className="dock-dialog-actions"><button type="button" className="dock-button" disabled={busy} onClick={() => closeEditor()}>Cancel</button><button type="submit" className="dock-button dock-primary" disabled={busy}>{busy ? 'Saving…' : 'Save category'}</button></div>
+        </form>
+      </div>}
     </>, tabsTarget)}
     {controlsTarget && createPortal(<>
       <style>{nativeStyles}</style>
       <div className="dock-workspace-controls">
         <div className="dock-controls-row">
-          <button type="button" className="dock-button dock-primary" onClick={() => { void categorize(); }} disabled={!loaded || busy || running || (live && (!state.accountEmail || !state.helperReady || !categories.length || !!missingDescriptions.length))}>Categorize emails</button>
+          <button type="button" className="dock-button dock-primary" onClick={() => { void categorize(); }} disabled={!loaded || busy || running || (live && (!state.accountEmail || !state.helperReady || !categories.length || !!incompleteCategories.length))}>Categorize emails</button>
           <label className="dock-days" htmlFor="dock-days">Last <output>{scopeDays}</output> days<input id="dock-days" name="days" aria-label="Days back" type="range" min="1" max="365" value={scopeDays} disabled={running || busy || (!!canResume && resumeRun)} onChange={event => { setDays(Number(event.target.value)); }} onPointerUp={() => { if (live) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} onKeyUp={event => { if (live && ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} /></label>
           {running && <button type="button" className="dock-button" disabled={busy || run?.status === 'stopping'} onClick={() => { void action({ type: 'dock:api', command: 'stop' }); }}>Stop</button>}
           {live && <button type="button" className="dock-button" ref={usageRef} disabled={!loaded} aria-haspopup="dialog" onClick={() => setUsageOpen(true)}>Gmail usage</button>}
           {run && <div className="dock-run-status" role="status"><span className="dock-run-summary">{runText}</span>{running && <progress aria-label="Categorization progress" max={Math.max(1, run.total)} value={run.phase === 'discovering' ? undefined : run.processed} />}{canResume && <label className="dock-resume-choice" title="Resume unfinished or failed messages when I press Categorize emails"><input type="checkbox" checked={resumeRun} onChange={event => setResumeRun(event.target.checked)} />Resume unfinished</label>}</div>}
           {toolbarError && <span className="dock-error dock-toolbar-error" role="alert" title={toolbarError}>{toolbarError}</span>}
-          {!!missingDescriptions.length && <span className="dock-notice" title={`Add descriptions to ${missingDescriptions.map(category => category.title).join(', ')} using Edit.`}>Add category descriptions to categorize.</span>}
+          {!!incompleteCategories.length && <span className="dock-notice">Name and describe your categories to begin.</span>}
           {live ? <button type="button" className={`dock-button dock-setup-button ${state.accountEmail ? 'is-connected' : ''}`} aria-label={state.accountEmail ? 'Connection' : 'Connect Gmail'} title={state.accountEmail ? 'Connection' : 'Connect Gmail'} onClick={() => { setFormError(''); setSetup(true); }}><Settings2 size={16} aria-hidden="true" />{!state.accountEmail && 'Connect Gmail'}</button> : <span className="dock-demo-note">{mode === 'outlook' ? 'Outlook demo · account connection not available' : 'Preview · sample messages only'}</span>}
         </div>
         {announcement && <span className={live ? 'dock-native-sr-only' : 'dock-announcement'} role="status">{announcement}</span>}
       </div>
       <dialog ref={dialogRef} className={`dock-dialog${usageOpen ? ' dock-usage-dialog' : ''}`} aria-labelledby="dock-dialog-title" onCancel={event => { if (busy && !usageOpen) event.preventDefault(); else closeDialog(); }}>
         {usageOpen && <GmailUsage run={run} runHistory={state.runHistory} onClose={closeDialog} />}
-        {editor && <form method="dialog" onSubmit={event => { void saveCategory(event); }}><h2 id="dock-dialog-title">{editor.id ? 'Edit category' : 'Create category'}</h2><label htmlFor="dock-category-title">Title<input ref={titleRef} id="dock-category-title" name="title" required maxLength={64} value={editor.title} onChange={event => { setEditor({ ...editor, title: event.target.value }); setFormError(''); }} /></label><label htmlFor="dock-category-description">Description<textarea id="dock-category-description" name="description" required maxLength={1000} rows={3} value={editor.description} aria-describedby="dock-description-help" onChange={event => { setEditor({ ...editor, description: event.target.value }); setFormError(''); }} /></label><p id="dock-description-help" className="dock-field-help">Describe which emails belong here. Jev uses this description to choose among your current categories.</p><label htmlFor="dock-category-icon">Icon<select id="dock-category-icon" name="icon" value={iconNames.includes(editor.icon) ? editor.icon : 'tag'} onChange={event => setEditor({ ...editor, icon: event.target.value })}>{iconNames.map(icon => <option key={icon} value={icon}>{icon[0]!.toUpperCase() + icon.slice(1)}</option>)}</select></label>{formError && <p className="dock-error" role="alert">{formError}</p>}<div className="dock-dialog-actions"><button type="button" className="dock-button" disabled={busy} onClick={closeDialog}>Cancel</button><button type="submit" className="dock-button dock-primary" disabled={busy}>{busy ? 'Saving…' : 'Save category'}</button></div></form>}
         {deleting && <><h2 id="dock-dialog-title">Delete {deleting.title}?</h2><p>Remove this category and its Dock-owned Gmail label from every message? Every email stays in Gmail, including Inbox messages. Unrelated labels stay unchanged.</p><p className="dock-field-help">Messages will no longer appear in this category. A future manual run can categorize them again.</p>{formError && <p className="dock-error" role="alert">{formError}</p>}<div className="dock-dialog-actions"><button type="button" ref={noRef} className="dock-button" disabled={busy} onClick={closeDialog}>No</button><button type="button" className="dock-button dock-primary" disabled={busy} onClick={() => { void deleteCategory(); }}>{busy ? 'Removing…' : 'Yes'}</button></div></>}
         {setup && <><h2 id="dock-dialog-title">Connect Dock</h2><p>Start the local helper, then paste the pairing code copied by helper setup or Copy-Pairing-Code.cmd.</p><form method="dialog" onSubmit={async event => { event.preventDefault(); if (await action({ type: 'dock:api', command: 'pairHelper', token: token.trim() }, 'Local helper paired.')) setToken(''); }}><label htmlFor="dock-helper-token">Helper pairing token<input id="dock-helper-token" name="pairingToken" type="password" autoComplete="off" value={token} required onChange={event => setToken(event.target.value)} /></label><button type="submit" className="dock-button" disabled={busy}>Pair helper</button></form><p className="dock-field-help">{state.helperReady ? 'Helper paired.' : 'Helper not paired.'} {state.oauthConfigured ? 'Google authorization is configured.' : 'Google OAuth setup is required; see INSTALL.md.'}</p><div className="dock-connect-row"><button type="button" className="dock-button dock-primary" disabled={busy || running || !state.oauthConfigured} onClick={() => { void action({ type: 'dock:api', command: 'connect' }, 'Gmail connection updated.'); }}>{state.accountEmail ? 'Reconnect Gmail' : 'Authorize Gmail'}</button>{state.accountEmail && <button type="button" className="dock-button" disabled={busy || running} onClick={() => { void action({ type: 'dock:api', command: 'disconnect' }, 'Gmail disconnected.'); }}>Disconnect</button>}</div>{state.accountEmail && <p className="dock-field-help">Connected as {state.accountEmail}.</p>}<p className="dock-field-help">Google Testing authorization expires after seven days. Return here to reconnect. Google grants the broader gmail.modify permission, which permits reading, changing and sending email. Dock only reads messages and changes its own category labels; it keeps Inbox and unrelated labels.</p><p className="dock-field-help">A manual run sends each selected email’s sender, subject and decoded body to Jev through your local helper for classification.</p><details className="dock-category-transfer"><summary>Import or export categories</summary><p className="dock-field-help">To move categories from the earlier prototype, paste its exported JSON here. Imported categories keep stable IDs. Review and fill in their descriptions before categorizing.</p><form method="dialog" onSubmit={async event => { event.preventDefault(); if (await action({ type: 'dock:api', command: 'importCategories', json: importJson }, 'Categories imported. Review their descriptions before running.')) setImportJson(''); }}><label htmlFor="dock-import-json">Category JSON<textarea id="dock-import-json" name="categoryJson" rows={4} value={importJson} required onChange={event => setImportJson(event.target.value)} /></label><button type="submit" className="dock-button" disabled={busy || running}>Import categories</button></form><label htmlFor="dock-export-json">Copy your category definitions<textarea id="dock-export-json" readOnly rows={4} value={JSON.stringify({ version: 2, categories: categories.map(({ id, title, description, icon, color }) => ({ id, title, description, icon, color })) }, null, 2)} onFocus={event => event.target.select()} /></label><p className="dock-field-help">The export contains definitions only. It contains no Gmail messages, credentials or label memberships.</p></details>{formError && <p className="dock-error" role="alert">{formError}</p>}<div className="dock-dialog-actions"><button type="button" className="dock-button" disabled={busy} onClick={closeDialog}>Done</button></div></>}
       </dialog>

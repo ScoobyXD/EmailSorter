@@ -60,7 +60,7 @@ export type DockRequest = { type: 'dock:api' } & (
   | { command: 'setDaysBack' | 'start'; daysBack: number }
   | { command: 'pairHelper'; token: string }
   | { command: 'importCategories'; json: string }
-  | { command: 'saveCategory'; category: { id?: string; title: string; description: string; icon?: string } }
+  | { command: 'saveCategory'; category: { id?: string; title: string; description: string; icon?: string; color?: string } }
   | { command: 'deleteCategory'; categoryId: string }
 );
 export type DockResponse =

@@ -36,13 +36,17 @@ export interface StoredState extends Omit<DockState, 'oauthConfigured' | 'helper
   run?: StoredRun;
 }
 export const COLORS = ['#c9daf8', '#e4d7f5', '#fef1d1', '#fcdee8', '#b9e4d0', '#ffe6c7', '#e7e7e7'];
-const DEFAULTS: [string, string, string, string][] = [
-  ['customs', 'Customs', 'Customs clearance, import or export documents, duties, tariffs, and border inspections.', 'package'],
-  ['shipping', 'Shipping', 'Freight, deliveries, shipment tracking, pickup arrangements, and transport logistics.', 'truck'],
-  ['purchasing', 'Purchase orders', 'Purchase orders, order confirmations, stock availability, and procurement approvals.', 'shopping-bag'],
-  ['vendors', 'Vendors', 'Supplier relationships, product quotes, vendor pricing, and supplier introductions.', 'users'],
-  ['invoices', 'Invoices', 'Invoices, bills, payment requests, receipts, and billing questions.', 'receipt'],
-];
+export const DEFAULT_CATEGORY_TITLE = 'Edit Me!';
+const STARTER_CATEGORY_IDS = ['starter-1', 'starter-2', 'starter-3'];
+
+export function createDefaultCategories(): DockCategory[] {
+  return STARTER_CATEGORY_IDS.map((id, index) => ({ id, title: DEFAULT_CATEGORY_TITLE, description: '', icon: 'tag', color: COLORS[index]! }));
+}
+
+/** A starter stops being a placeholder once its title changes. */
+export function isStarterCategory(category: Pick<DockCategory, 'id' | 'title'>): boolean {
+  return STARTER_CATEGORY_IDS.includes(category.id) && category.title.trim().toLowerCase() === DEFAULT_CATEGORY_TITLE.toLowerCase();
+}
 export function initialState(legacy?: unknown): StoredState {
   const old = legacy as { version?: unknown; categories?: unknown } | undefined;
   const candidate = old?.version === 1 && Array.isArray(old.categories) ? old.categories : null;
@@ -58,7 +62,7 @@ export function initialState(legacy?: unknown): StoredState {
       categories.push({ id: item.id, title: item.name.trim().slice(0, 120), description: '', icon: 'tag', color: COLORS[categories.length % COLORS.length]! });
     }
   } else {
-    categories.push(...DEFAULTS.map(([id, title, description, icon], i) => ({ id, title, description, icon, color: COLORS[i]! })));
+    categories.push(...createDefaultCategories());
   }
   return { version: 2, installationId: crypto.randomUUID(), categories, daysBack: 30 };
 }
