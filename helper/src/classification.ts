@@ -117,12 +117,11 @@ export function validateResult(value: unknown, input: ClassificationRequest): Cl
   };
 }
 
-export function makeClassifier(apiKey: string, model = MODEL, fetchOverride?: typeof fetch) {
+export function makeClassifier(apiKey: string, model = MODEL) {
   const client = new TypeSafeClient({
     apiKey, defaultModel: model, baseURL: 'https://api.typesafe.ai',
     logLevel: 'off', timeout: 15000,
     retry: { maxRetries: 2, backoffInitialMs: 500, backoffMaxMs: 2500, maxRetryAfterMs: 5000 },
-    ...(fetchOverride ? { fetch: fetchOverride } : {}),
   });
   return async (input: ClassificationRequest, signal: AbortSignal): Promise<ClassificationResult> => {
     try {

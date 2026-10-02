@@ -53,6 +53,18 @@ async function fillCategory(page, title, description) {
   await page.getByRole('button', { name: 'Save category', exact: true }).click();
 }
 
+async function checkDemoDeletion(page) {
+  await page.getByRole('tab', { name: 'Shipping', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete Shipping', exact: true }).click();
+  await page.getByRole('button', { name: 'Yes', exact: true }).click();
+  await page.getByRole('tab', { name: 'Uncategorized', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Open sample message:/ })).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Shipping', exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Uncategorized', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Open sample message:/ })).toHaveCount(2);
+}
+
 try {
   const page = await context.newPage();
   await page.goto('https://mail.google.com/mail/u/0/#inbox');
@@ -217,6 +229,7 @@ try {
     await expect(outlook.getByRole('button', { name: /^Open sample message:/ })).toHaveCount(2);
     await outlook.getByRole('button', { name: 'Back to inbox', exact: true }).click();
     await expect(outlook.locator('.dock-inbox-view')).toBeHidden();
+    if (host === 'outlook.cloud.microsoft') await checkDemoDeletion(outlook);
     await outlook.close();
   }
 
@@ -243,6 +256,7 @@ try {
   await expect(preview.getByRole('button', { name: 'Add category', exact: true })).toBeVisible();
   expect(await preview.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await preview.screenshot({ path: path.join(artifacts, 'preview-mobile.png'), fullPage: true });
+  await checkDemoDeletion(preview);
   expect(errors).toEqual([]);
   expect(unexpectedRequests).toEqual([]);
   console.log(JSON.stringify({ result: 'PASS', checks: ['Gmail typography, icons, manual-only controls, default 30-day scope, no sidebar', 'native tab DOM and interactions preserved; SPA replacement and routes', 'native label overview, pagination, fresh page and Back preserve controls without a custom message list', 'conversation routes hide controls; disconnected category click opens Connection', 'compact title/description create/edit, F2, duplicate validation, cancel, stable saved categories', 'delete Yes/No confirmation and persistence', 'legacy JSON migration and credential-free definition export', 'interrupted run pauses on reload with saved progress and resume option in the toolbar', 'native colored-label fixture preserved without duplicate chips on Inbox/All Mail routes (not a live Gmail validation)', 'four Outlook hosts remain sample-only', 'standalone preview controls and narrow layout', 'no page errors or unexpected network requests'] }, null, 2));

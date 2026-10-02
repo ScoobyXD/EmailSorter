@@ -1,7 +1,12 @@
-import type { GmailLayoutOptions, GmailViewRect } from './gmail-layout';
+import type { GmailLayoutOptions } from './gmail-layout';
+
+export interface OutlookViewRect { top: number; left: number; width: number; height: number }
+type OutlookLayoutOptions = Pick<GmailLayoutOptions, 'tabsHost' | 'onNativeSelect'> & {
+  onViewRect?: (rectangle: OutlookViewRect | null) => void;
+};
 
 /** Outlook's prototype uses its own wrapping filter row at the top of the mail area. */
-export function attachOutlookLayout({ tabsHost, onViewRect, onNativeSelect }: GmailLayoutOptions): () => void {
+export function attachOutlookLayout({ tabsHost, onViewRect, onNativeSelect }: OutlookLayoutOptions): () => void {
   let frame = 0;
   let disposed = false;
   let main: HTMLElement | null = null;
@@ -36,7 +41,7 @@ export function attachOutlookLayout({ tabsHost, onViewRect, onNativeSelect }: Gm
     }
     if (main && !main.contains(slot)) main.prepend(slot);
     if (!main) slot.remove();
-    let rect: GmailViewRect | null = null;
+    let rect: OutlookViewRect | null = null;
     if (main) {
       const bounds = main.getBoundingClientRect();
       const top = slot.getBoundingClientRect().bottom;

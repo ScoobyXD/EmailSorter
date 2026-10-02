@@ -21,5 +21,8 @@
     "react-dom": "19.3.0",
     "typescript": "7.0.2",
     "wxt": "0.21.4"
+  },
+  "devDependencies": {
+    "@aklinker1/zero-zip": "1.0.1"
   }
 }

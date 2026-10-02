@@ -7,7 +7,7 @@ export interface Classification {
   answer: { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> };
   usage: { input_tokens: number; output_tokens: number };
 }
-export interface RunItem {
+interface RunItem {
   id: string;
   status: 'pending' | 'succeeded' | 'failed' | 'skipped';
   /** Persist the exact probability output before Gmail mutation so retries reuse it. */
@@ -43,7 +43,7 @@ const DEFAULTS: [string, string, string, string][] = [
   ['vendors', 'Vendors', 'Supplier relationships, product quotes, vendor pricing, and supplier introductions.', 'users'],
   ['invoices', 'Invoices', 'Invoices, bills, payment requests, receipts, and billing questions.', 'receipt'],
 ];
-export function initialState(legacy?: unknown, uuid: () => string = () => crypto.randomUUID()): StoredState {
+export function initialState(legacy?: unknown): StoredState {
   const old = legacy as { version?: unknown; categories?: unknown } | undefined;
   const candidate = old?.version === 1 && Array.isArray(old.categories) ? old.categories : null;
   const categories: DockCategory[] = [];
@@ -60,7 +60,7 @@ export function initialState(legacy?: unknown, uuid: () => string = () => crypto
   } else {
     categories.push(...DEFAULTS.map(([id, title, description, icon], i) => ({ id, title, description, icon, color: COLORS[i]! })));
   }
-  return { version: 2, installationId: uuid(), categories, daysBack: 30 };
+  return { version: 2, installationId: crypto.randomUUID(), categories, daysBack: 30 };
 }
 export function publicState(state: StoredState, oauthConfigured: boolean): DockState {
   const run = state.run;
@@ -78,9 +78,10 @@ export function publicState(state: StoredState, oauthConfigured: boolean): DockS
 }
 export function recalculate(run: StoredRun): void {
   run.total = run.items.length;
-  run.succeeded = run.items.filter((item) => item.status === 'succeeded').length;
-  run.failed = run.items.filter((item) => item.status === 'failed').length;
-  run.skipped = run.items.filter((item) => item.status === 'skipped').length;
+  run.succeeded = run.failed = run.skipped = 0;
+  for (const { status } of run.items) {
+    if (status === 'succeeded' || status === 'failed' || status === 'skipped') run[status]++;
+  }
   run.processed = run.succeeded + run.failed + run.skipped;
 }
 /** Gmail shows only the category title. Ownership is stored by immutable label ID. */

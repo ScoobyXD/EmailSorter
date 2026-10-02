@@ -7,7 +7,7 @@ import type { ClassificationRequest, ClassificationResult } from './classificati
 export const PORT = 38471;
 export const EXTENSION_ID = 'ccklhlnpillicildcgbdfibggkkhkdib';
 export type Classifier = (input: ClassificationRequest, signal: AbortSignal) => Promise<ClassificationResult>;
-interface Options { pairingToken: string; extensionId?: string; model?: string; classify: Classifier; maxConcurrent?: number }
+interface Options { pairingToken: string; extensionId?: string; model?: string; classify: Classifier }
 
 function safeEqual(a: string, b: string): boolean {
   const actual = Buffer.from(a);
@@ -83,7 +83,7 @@ export function createHelperServer(options: Options) {
       }
       if (request.method !== 'POST' || request.url !== '/classify') throw new PublicError(404, 'NOT_FOUND', 'Unknown helper operation.');
       if (Date.now() - windowStart >= 60000) { windowStart = Date.now(); requestsInWindow = 0; }
-      if (++requestsInWindow > 240 || active >= (options.maxConcurrent ?? 4)) {
+      if (++requestsInWindow > 240 || active >= 4) {
         response.setHeader('Retry-After', '2');
         throw new PublicError(429, 'HELPER_BUSY', 'The helper is busy. Retry shortly.', true);
       }

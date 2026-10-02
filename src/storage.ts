@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
+import type { DemoStorage } from './ui/data';
 
-export const extensionStorage = {
+export const extensionStorage: DemoStorage = {
   async load(): Promise<unknown> {
     const response = await browser.runtime.sendMessage({ type: 'dock:demo-load' });
     return response?.value;

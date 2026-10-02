@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ClipboardList, Factory, Inbox, Plus, ReceiptText, Settings2, ShieldCheck, ShoppingBag, Package, Users, Star, Tag, Truck, X, type LucideIcon } from 'lucide-react';
-import type { DemoStorage } from './App';
-import { createInitialState, migrateDemoState, type DemoState } from './data';
+import { createInitialState, migrateDemoState, sampleMessages, type DemoState, type DemoStorage } from './data';
 import { UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type DockState } from '../gmail/protocol';
 import { canOpenGmailInPlace, getGmailLabelFromRoute, gmailLabelHash, openGmailRoute } from '../integration/gmail-navigation';
 import nativeStyles from './workspace.css?inline';
 
 export type DockApi = (request: DockRequest) => Promise<DockResponse>;
-export interface WorkspaceProps {
+interface WorkspaceProps {
   storage?: DemoStorage;
   api?: DockApi;
   mode?: 'gmail' | 'outlook' | 'preview';
@@ -18,7 +17,7 @@ export interface WorkspaceProps {
   onSelectionChange?: (selected: boolean) => void;
   resetSelectionToken?: number;
 }
-interface Editor { id?: string; title: string; description: string; icon: string }
+interface Editor extends Pick<DockCategory, 'title' | 'description' | 'icon'> { id?: string }
 const categoryIcons: Record<string, LucideIcon> = { shield: ShieldCheck, truck: Truck, clipboard: ClipboardList, factory: Factory, receipt: ReceiptText, 'shopping-bag': ShoppingBag, package: Package, users: Users, star: Star, tag: Tag, customs: ShieldCheck, shipping: Truck, purchasing: ClipboardList, vendors: Factory, invoices: ReceiptText };
 const iconNames = ['tag', 'shield', 'truck', 'clipboard', 'factory', 'receipt', 'star', 'package', 'shopping-bag', 'users'];
 const EMPTY_STATE: DockState = { version: 2, categories: [], daysBack: 30, helperReady: false, oauthConfigured: false };
@@ -218,7 +217,7 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     setBusy(true); setFormError('');
     try {
       if (live) await request({ type: 'dock:api', command: 'deleteCategory', categoryId: deleting.id });
-      else await saveDemo({ ...demo, categories: categories.filter(item => item.id !== deleting.id), messages: demo.messages.map(message => message.categoryId === deleting.id ? { ...message, categoryId: UNCATEGORIZED } : message) });
+      else await saveDemo({ ...demo, categories: categories.filter(item => item.id !== deleting.id) });
       if (selectedId === deleting.id) backToInbox();
       setAnnouncement(`${deleting.title} removed. Every email has been kept.`); closeDialog();
     } catch (error) { setFormError(error instanceof Error ? error.message : 'The category could not be removed.'); }
@@ -242,7 +241,9 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     await action(canResume && resumeRun ? { type: 'dock:api', command: 'resume' } : { type: 'dock:api', command: 'start', daysBack: days });
   }
   const sectionName = selectedId === UNCATEGORIZED ? 'Uncategorized' : categories.find(category => category.id === selectedId)?.title ?? '';
-  const demoMessages = demo.messages.filter(message => message.categoryId === selectedId).sort((a, b) => (sort === 'newest' ? -1 : 1) * (a.receivedOrder - b.receivedOrder));
+  const demoMessages = live ? [] : sampleMessages.filter(message => selectedId === UNCATEGORIZED
+    ? !categories.some(category => category.id === message.categoryId)
+    : message.categoryId === selectedId).sort((a, b) => (sort === 'newest' ? -1 : 1) * (a.receivedOrder - b.receivedOrder));
   const runDetails = !run ? '' : run.status === 'running'
     ? run.retryAt && run.retryAt > Date.now()
       ? `Retry in ${Math.ceil((run.retryAt - Date.now()) / 1000)}s`
@@ -297,7 +298,3 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     </>, viewTarget)}
   </>;
 }
-export default Workspace;
-
-
-

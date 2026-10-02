@@ -4,16 +4,17 @@ import { browser } from 'wxt/browser';
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import { Workspace, type DockApi } from '../../src/ui/Workspace';
-import { attachGmailLayout, type GmailViewRect } from '../../src/integration/gmail-layout';
-import { attachOutlookLayout } from '../../src/integration/outlook-layout';
+import { attachGmailLayout } from '../../src/integration/gmail-layout';
+import { attachOutlookLayout, type OutlookViewRect } from '../../src/integration/outlook-layout';
 import { extensionStorage } from '../../src/storage';
 import './shell.css';
 
 const gmailApi: DockApi = async (request) => await browser.runtime.sendMessage(request);
+const isGmail = location.hostname === 'mail.google.com';
 
 function ExtensionShell({ tabsHost, tabsTarget, controlsHost, controlsTarget }: { tabsHost: HTMLElement; tabsTarget: HTMLElement; controlsHost: HTMLElement; controlsTarget: HTMLElement }) {
   const [active, setActive] = useState(false);
-  const [viewRect, setViewRect] = useState<GmailViewRect | null>(null);
+  const [viewRect, setViewRect] = useState<OutlookViewRect | null>(null);
   const [viewTarget, setViewTarget] = useState<HTMLDivElement | null>(null);
   const [resetSelectionToken, setResetSelectionToken] = useState(0);
   const resetSelection = useCallback(() => {
@@ -22,7 +23,7 @@ function ExtensionShell({ tabsHost, tabsTarget, controlsHost, controlsTarget }: 
   }, []);
 
   useEffect(() => {
-    return location.hostname === 'mail.google.com'
+    return isGmail
       ? attachGmailLayout({ tabsHost, controlsHost, onNativeSelect: resetSelection })
       : attachOutlookLayout({ tabsHost, onViewRect: setViewRect, onNativeSelect: resetSelection });
   }, [tabsHost, controlsHost, resetSelection]);
@@ -43,8 +44,8 @@ function ExtensionShell({ tabsHost, tabsTarget, controlsHost, controlsTarget }: 
   }, [tabsHost, tabsTarget]);
 
   return <>
-    {location.hostname !== 'mail.google.com' && <div ref={setViewTarget} className="dock-inbox-view" hidden={!active || !viewRect} style={viewRect ?? undefined} />}
-    <Workspace mode={location.hostname === 'mail.google.com' ? 'gmail' : 'outlook'} api={location.hostname === 'mail.google.com' ? gmailApi : undefined} storage={location.hostname === 'mail.google.com' ? undefined : extensionStorage} tabsTarget={tabsTarget} controlsTarget={location.hostname === 'mail.google.com' ? controlsTarget : tabsTarget} viewTarget={viewTarget} onSelectionChange={setActive} resetSelectionToken={resetSelectionToken} />
+    {!isGmail && <div ref={setViewTarget} className="dock-inbox-view" hidden={!active || !viewRect} style={viewRect ?? undefined} />}
+    <Workspace mode={isGmail ? 'gmail' : 'outlook'} api={isGmail ? gmailApi : undefined} storage={isGmail ? undefined : extensionStorage} tabsTarget={tabsTarget} controlsTarget={isGmail ? controlsTarget : tabsTarget} viewTarget={viewTarget} onSelectionChange={setActive} resetSelectionToken={resetSelectionToken} />
   </>;
 }
 

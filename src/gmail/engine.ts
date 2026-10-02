@@ -3,7 +3,7 @@ import { COLORS, initialState, labelName, legacyLabelName, publicState, recalcul
 import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse } from './protocol';
 import { ApiError, GmailNetworkError, GmailRequests, RunStoppedError } from './requests';
 
-export interface EngineDependencies {
+interface EngineDependencies {
   load(): Promise<StoredState | undefined>;
   save(state: StoredState): Promise<void>;
   legacy(): Promise<unknown>;
@@ -12,15 +12,12 @@ export interface EngineDependencies {
   disconnect(): Promise<void>;
   fetch: typeof fetch;
   oauthConfigured: boolean;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-  uuid?: () => string;
 }
 interface Label { id: string; name: string; type?: string }
 class PauseRunError extends Error {}
 const active = (run?: StoredRun) => run?.status === 'running' || run?.status === 'stopping';
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'The request failed. Try again.';
-const categorySignature = (categories: DockCategory[]) => JSON.stringify(categories.map(({ id, title, description }) => ({ id, title, description })));
+const categoryDefinitions = (categories: DockCategory[]) => categories.map(({ id, title, description }) => ({ id, title, description }));
 const sameLabelName = (first: string, second: string) => first.toLowerCase() === second.toLowerCase();
 
 function validateCategoryTitles(categories: DockCategory[]): void {
@@ -40,10 +37,7 @@ function checkLabelConflict(labels: Label[], name: string, ownedId?: string): vo
 
 /** Only an explicit start/resume command enters drain(). No alarms, onStartup work, or mail watchers. */
 export class GmailEngine {
-  private readonly owner: string;
-  private readonly now: () => number;
-  private readonly sleep: (ms: number) => Promise<void>;
-  private readonly uuid: () => string;
+  private readonly owner = crypto.randomUUID();
   // These coordinate this worker lifetime only. Every recoverable datum is saved in extension storage.
   private transactionTail: Promise<unknown> = Promise.resolve();
   private commandTail: Promise<unknown> = Promise.resolve();
@@ -51,12 +45,8 @@ export class GmailEngine {
   private tokenProfiles = new Map<string, string>();
   private readonly requests: GmailRequests;
   constructor(private readonly deps: EngineDependencies) {
-    this.now = deps.now || Date.now;
-    this.sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-    this.uuid = deps.uuid || (() => crypto.randomUUID());
-    this.owner = this.uuid();
     this.requests = new GmailRequests({
-      fetch: (...args) => this.deps.fetch(...args), now: this.now, sleep: (ms) => this.sleep(ms),
+      fetch: (...args) => this.deps.fetch(...args),
       traffic: async (change) => await this.update((state) => change(state.gmailTraffic ||= {})),
       check: async (runId) => {
         const state = await this.read();
@@ -66,13 +56,13 @@ export class GmailEngine {
         await this.update((state) => {
           if (state.run?.status === 'running' && (!runId || state.run.id === runId)) {
             state.run.retryAt = until;
-            state.run.updatedAt = this.now();
+            state.run.updatedAt = Date.now();
           }
         });
       },
       ready: async (runId) => {
         await this.update((state) => {
-          if (state.run && (!runId || state.run.id === runId) && (state.run.retryAt || 0) <= this.now()) delete state.run.retryAt;
+          if (state.run && (!runId || state.run.id === runId) && (state.run.retryAt || 0) <= Date.now()) delete state.run.retryAt;
         });
       },
     });
@@ -80,7 +70,7 @@ export class GmailEngine {
   private async read(): Promise<StoredState> {
     const existing = await this.deps.load();
     if (existing?.version === 2) return existing;
-    const state = initialState(await this.deps.legacy(), this.uuid);
+    const state = initialState(await this.deps.legacy());
     await this.deps.save(state);
     return state;
   }
@@ -101,7 +91,7 @@ export class GmailEngine {
       if (active(state.run) && state.run!.owner !== this.owner) {
         state.run!.status = 'paused';
         state.run!.error = 'Browser or extension restarted. Completed labels are saved. Press Categorize emails to resume.';
-        state.run!.updatedAt = this.now();
+        state.run!.updatedAt = Date.now();
       }
       return publicState(state, this.deps.oauthConfigured);
     });
@@ -141,7 +131,7 @@ export class GmailEngine {
         case 'resume': await this.resume(); break;
         case 'stop':
           await this.update((state) => {
-            if (state.run?.status === 'running') { state.run.status = 'stopping'; state.run.updatedAt = this.now(); }
+            if (state.run?.status === 'running') { state.run.status = 'stopping'; state.run.updatedAt = Date.now(); }
           });
           break;
         case 'refreshLabels': await this.refreshLabels(); break;
@@ -165,7 +155,7 @@ export class GmailEngine {
       const title = parsed.version === 1 ? item.name : item.title;
       if (typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(item.id) || ['__proto__', 'constructor', 'prototype', '__uncategorized__'].includes(item.id) || typeof title !== 'string' || !title.trim() || title.length > 120 || /[\r\n]/.test(title)) throw new Error('Imported categories need valid IDs and titles.');
       if (item.id === 'urgent' || item.id === UNCATEGORIZED) continue;
-      if (seen.has(item.id) || categories.some((category) => category.title.toLowerCase() === title.trim().toLowerCase())) throw new Error('Imported category IDs and titles must be unique.');
+      if (seen.has(item.id) || categories.some((category) => sameLabelName(category.title, title.trim()))) throw new Error('Imported category IDs and titles must be unique.');
       const description = parsed.version === 1 ? '' : item.description;
       if (typeof description !== 'string' || description.length > 1000) throw new Error('Imported descriptions must be text under 1,000 characters.');
       seen.add(item.id);
@@ -182,7 +172,7 @@ export class GmailEngine {
           if (current.labelId && current.title !== category.title) throw new Error('Rename existing connected categories with Edit before importing.');
           merged[index] = { ...category, color: current.color, labelId: current.labelId, labelName: current.labelId ? current.labelName : undefined };
         } else {
-          if (merged.some((current) => current.title.toLowerCase() === category.title.toLowerCase())) throw new Error(`A different category already uses the title ${category.title}. Rename it first.`);
+          if (merged.some((current) => sameLabelName(current.title, category.title))) throw new Error(`A different category already uses the title ${category.title}. Rename it first.`);
           merged.push(category);
         }
       }
@@ -242,18 +232,18 @@ export class GmailEngine {
     if (profile.emailAddress !== state.accountEmail) throw new Error('The Google account changed. Disconnect and reconnect the intended Gmail account.');
     return state;
   }
-  private async saveCategory(input: { id?: string; title: string; description: string; icon?: string }): Promise<void> {
+  private async saveCategory(input: Extract<DockRequest, { command: 'saveCategory' }>['category']): Promise<void> {
     const title = typeof input.title === 'string' ? input.title.trim() : '';
     const description = typeof input.description === 'string' ? input.description.trim() : '';
     if (!title || title.length > 120 || /[\r\n]/.test(title)) throw new Error('Give the category a title from 1 to 120 characters.');
     if (description.length > 1000) throw new Error('Keep descriptions under 1,000 characters.');
     const before = await this.read();
     if (active(before.run)) throw new Error('Stop the run before editing categories.');
-    if (input.id && !before.categories.some((category) => category.id === input.id)) throw new Error('Category no longer exists.');
-    if (before.categories.some((category) => category.id !== input.id && category.title.toLowerCase() === title.toLowerCase())) throw new Error('A category already uses that title.');
-    if (!input.id && before.categories.length >= 50) throw new Error('This prototype supports up to 50 categories.');
     const old = before.categories.find((category) => category.id === input.id);
-    const category: DockCategory = { id: old?.id || this.uuid(), title, description, icon: input.icon?.slice(0, 32) || old?.icon || 'tag', color: old?.color || COLORS[before.categories.length % COLORS.length]!, ...(old?.labelId ? { labelId: old.labelId } : {}) };
+    if (input.id && !old) throw new Error('Category no longer exists.');
+    if (before.categories.some((category) => category.id !== input.id && sameLabelName(category.title, title))) throw new Error('A category already uses that title.');
+    if (!input.id && before.categories.length >= 50) throw new Error('This prototype supports up to 50 categories.');
+    const category: DockCategory = { id: old?.id || crypto.randomUUID(), title, description, icon: input.icon?.slice(0, 32) || old?.icon || 'tag', color: old?.color || COLORS[before.categories.length % COLORS.length]!, ...(old?.labelId ? { labelId: old.labelId } : {}) };
     validateCategoryTitles(old ? before.categories.map((item) => item.id === old.id ? category : item) : [...before.categories, category]);
     if (old?.labelId) {
       await this.requireAccount();
@@ -295,12 +285,12 @@ export class GmailEngine {
     this.validateRun(state);
     if (active(state.run) || this.running) throw new Error('A run is already active.');
     await this.helper('health', state.helperToken!);
-    const now = this.now();
+    const now = Date.now();
     await this.update((current) => {
       if (active(current.run)) throw new Error('A run is already active.');
       current.daysBack = daysBack;
       current.run = {
-        id: this.uuid(), owner: this.owner, status: 'running', phase: 'discovering', daysBack,
+        id: crypto.randomUUID(), owner: this.owner, status: 'running', phase: 'discovering', daysBack,
         cutoff: now - daysBack * 86400000, before: now,
         query: `after:${Math.floor((now - daysBack * 86400000) / 1000)} before:${Math.ceil(now / 1000)}`,
         total: 0, processed: 0, succeeded: 0, failed: 0, skipped: 0, startedAt: now, updatedAt: now,
@@ -320,13 +310,13 @@ export class GmailEngine {
     await this.helper('health', state.helperToken!);
     await this.update((current) => {
       const run = current.run!;
-      const changed = categorySignature(run.categories) !== categorySignature(current.categories);
+      const changed = JSON.stringify(categoryDefinitions(run.categories)) !== JSON.stringify(categoryDefinitions(current.categories));
       for (const item of run.items) {
         if (item.status === 'failed') { item.status = 'pending'; delete item.error; }
         if (changed && item.status === 'pending') delete item.decision;
       }
       run.categories = structuredClone(current.categories);
-      run.owner = this.owner; run.status = 'running'; run.updatedAt = this.now(); delete run.error;
+      run.owner = this.owner; run.status = 'running'; run.updatedAt = Date.now(); delete run.error;
       recalculate(run);
     });
     this.launch();
@@ -336,13 +326,11 @@ export class GmailEngine {
     // drain catches all failures and checkpoints; completion bookkeeping is ephemeral only.
     void (async () => { try { await this.running; } finally { this.running = undefined; } })();
   }
-  /** Awaited by fixtures; production callers observe persisted progress instead. */
-  async whenIdle(): Promise<void> { await this.running; }
   private async pauseIfStopped(runId: string): Promise<boolean> {
     return await this.update((state) => {
       const run = state.run;
       if (!run || run.id !== runId || run.status !== 'running') {
-        if (run?.id === runId && run.status === 'stopping') { run.status = 'paused'; run.error = 'Stopped. Completed labels are saved. Resume when ready.'; run.updatedAt = this.now(); }
+        if (run?.id === runId && run.status === 'stopping') { run.status = 'paused'; run.error = 'Stopped. Completed labels are saved. Resume when ready.'; run.updatedAt = Date.now(); }
         return true;
       }
       return false;
@@ -374,7 +362,7 @@ export class GmailEngine {
           current.pageToken = page.nextPageToken;
           current.discovered = !page.nextPageToken;
           current.phase = current.discovered ? 'categorizing' : 'discovering';
-          current.updatedAt = this.now(); recalculate(current);
+          current.updatedAt = Date.now(); recalculate(current);
         });
       }
       if (await this.pauseIfStopped(runId)) return;
@@ -393,12 +381,12 @@ export class GmailEngine {
         if (run.id !== runId) return;
         run.status = run.failed ? 'failed' : 'completed';
         run.error = run.failed ? `${run.failed} email(s) failed. Completed labels are saved; retry resumes only unfinished emails. ${run.items.find((item) => item.error)?.error || ''}` : undefined;
-        run.updatedAt = this.now();
+        run.updatedAt = Date.now();
       });
     } catch (error) {
       if (error instanceof RunStoppedError) { await this.pauseIfStopped(runId); return; }
       await this.update((state) => {
-        if (state.run?.id === runId) { state.run.status = 'failed'; state.run.error = errorText(error); state.run.updatedAt = this.now(); }
+        if (state.run?.id === runId) { state.run.status = 'failed'; state.run.error = errorText(error); state.run.updatedAt = Date.now(); }
       });
     }
   }
@@ -480,7 +468,7 @@ export class GmailEngine {
         if (state.run?.status !== 'running') return;
         decision = await this.helper<Classification>('classify', state.helperToken!, {
           message: { sender: header(message.payload, 'From'), subject: header(message.payload, 'Subject'), body },
-          categories: run.categories.map(({ id, title, description }) => ({ id, title, description })),
+          categories: categoryDefinitions(run.categories),
         });
         if (decision.categoryId !== null && !run.categories.some((category) => category.id === decision!.categoryId)) throw new Error('The classifier returned an unknown category. Email left unchanged.');
         if (!decision.answer || decision.answer.type !== 'choice' || !Number.isFinite(decision.answer.confidence) || !decision.answer.probabilities || (decision.categoryId === null ? decision.answer.choice !== '__uncategorized__' : decision.answer.choice !== decision.categoryId)) throw new Error('The classifier returned an invalid Choice result. Email left unchanged.');
@@ -493,8 +481,8 @@ export class GmailEngine {
       if (state.run?.status !== 'running') return;
       const target = decision.categoryId === null ? state.uncategorizedLabelId : state.categories.find((category) => category.id === decision!.categoryId)?.labelId;
       if (!target) throw new Error('Category label is missing. Resume the run to recreate it.');
-      const ownedIds = [...state.categories.map((category) => category.labelId), state.uncategorizedLabelId].filter((id): id is string => Boolean(id));
-      const removeLabelIds = ownedIds.filter((id) => id !== target && message.labelIds?.includes(id));
+      const removeLabelIds = [...state.categories.map((category) => category.labelId), state.uncategorizedLabelId]
+        .filter((id): id is string => !!id && id !== target && !!message.labelIds?.includes(id));
       // Never pass INBOX, UNREAD, or any unrelated label as a removal. Applying again is idempotent.
       await this.gmail(`messages/${encodeURIComponent(messageId)}/modify`, { method: 'POST', body: JSON.stringify({ addLabelIds: [target], removeLabelIds }) }, true, runId);
       await this.finishItem(runId, messageId, 'succeeded');
@@ -517,7 +505,7 @@ export class GmailEngine {
           delete item.decision;
         }
       }
-      state.run.updatedAt = this.now(); recalculate(state.run);
+      state.run.updatedAt = Date.now(); recalculate(state.run);
     });
   }
   private async refreshLabels(): Promise<void> {

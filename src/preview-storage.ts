@@ -1,5 +1,7 @@
+import type { DemoStorage } from './ui/data';
+
 const KEY = 'dock-preview-v1';
-export const previewStorage = {
+export const previewStorage: DemoStorage = {
   async load(): Promise<unknown> {
     try { return JSON.parse(localStorage.getItem(KEY) ?? 'null'); }
     catch { return null; }

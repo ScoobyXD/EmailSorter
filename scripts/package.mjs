@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, cp, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { createZip } from '@aklinker1/zero-zip';
 
 const project = process.cwd();
 const built = path.join(project, '.output/chrome-mv3');
@@ -56,47 +57,24 @@ for (const match of [...html.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*\bhref
 await writeFile(path.join(output, 'Dock-preview.html'), html);
 await cp(path.join(project, 'README.md'), path.join(output, 'INSTALL.md'));
 await cp(path.join(project, 'VERIFICATION.md'), path.join(output, 'VERIFICATION.md'));
-// Stored-entry UTF-8 ZIP writer, with no packaging dependency.
-const crcTable = Array.from({ length: 256 }, (_, n) => {
-  for (let i = 0; i < 8; i++) n = (n & 1) ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
-  return n >>> 0;
-});
-function crc32(buffer) {
-  let crc = 0xffffffff;
-  for (const byte of buffer) crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
 const checksums = [];
 async function zip(root, names, filename) {
-  let offset = 0;
-  const records = [], directory = [];
+  const zip = createZip();
   for (const relative of names) {
-    const name = Buffer.from(relative.replaceAll('\\', '/'));
-    const data = await readFile(path.join(root, relative));
-    const crc = crc32(data), local = Buffer.alloc(30), central = Buffer.alloc(46);
-    local.writeUInt32LE(0x04034b50); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x800, 6);
-    local.writeUInt16LE(33, 12); local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(name.length, 26);
-    central.writeUInt32LE(0x02014b50); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x800, 8); central.writeUInt16LE(33, 14); central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(offset, 42);
-    records.push(local, name, data); directory.push(central, name);
-    offset += local.length + name.length + data.length;
+    zip.addFile(relative.replaceAll('\\', '/'), await readFile(path.join(root, relative)));
   }
-  const dir = Buffer.concat(directory), end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(names.length, 8); end.writeUInt16LE(names.length, 10);
-  end.writeUInt32LE(dir.length, 12); end.writeUInt32LE(offset, 16);
-  const archive = Buffer.concat([...records, dir, end]);
+  const archive = await zip.toBuffer();
   await writeFile(path.join(output, filename), archive);
   checksums.push({ name: filename, files: names.length, sha256: createHash('sha256').update(archive).digest('hex') });
 }
-await zip(extension, await files(extension), 'Dock-extension.zip');
-await zip(helper, await files(helper), 'Dock-helper.zip');
-const sourceRoots = ['entrypoints', 'src', 'public', 'scripts', 'standalone', 'helper', 'docs'];
+const extensionFiles = await files(extension);
+const helperFiles = await files(helper);
+await zip(extension, extensionFiles, 'Dock-extension.zip');
+await zip(helper, helperFiles, 'Dock-helper.zip');
+const sourceRoots = ['entrypoints', 'src', 'public', 'scripts', 'helper', 'docs'];
 const sources = ['package.json', 'package-lock.json', 'wxt.config.ts', 'tsconfig.json', 'extension-identity.json', 'README.md', 'VERIFICATION.md', '.gitignore'];
 for (const root of sourceRoots) sources.push(...(await files(path.join(project, root))).map(p => path.join(root, p)));
 await zip(project, sources, 'Dock-source.zip');
 await writeFile(path.join(output, 'checksums.json'), JSON.stringify(checksums, null, 2) + '\n');
-await writeFile(path.join(output, 'package-manifest.json'), JSON.stringify({ version: JSON.parse(await readFile(path.join(project, 'package.json'), 'utf8')).version, sourceFiles: sources, extensionFiles: await files(extension), helperFiles: await files(helper) }, null, 2));
+await writeFile(path.join(output, 'package-manifest.json'), JSON.stringify({ version: JSON.parse(await readFile(path.join(project, 'package.json'), 'utf8')).version, sourceFiles: sources, extensionFiles, helperFiles }, null, 2));
 console.log('Packaged extension, helper, source ZIPs and standalone preview. Private configuration excluded.');

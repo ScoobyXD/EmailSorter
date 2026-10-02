@@ -47,6 +47,5 @@ export type DockResponse =
   | { ok: true; state?: DockState }
   | { ok: false; error: string };
 export const UNCATEGORIZED = 'uncategorized';
-export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
 export const HELPER_URL = 'http://127.0.0.1:38471';
 export const STATE_KEY = 'dock-gmail-v2';

@@ -1,4 +1,4 @@
-export interface MimePart {
+interface MimePart {
   mimeType?: string;
   filename?: string;
   headers?: { name: string; value: string }[];
@@ -6,23 +6,20 @@ export interface MimePart {
   parts?: MimePart[];
 }
 export interface GmailFullMessage {
-  id: string;
-  threadId: string;
   internalDate: string;
   labelIds?: string[];
-  snippet?: string;
   payload?: MimePart;
 }
 export function header(part: MimePart | undefined, name: string): string {
   return part?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
 }
-export function decodeBase64Url(data: string, charset = 'utf-8'): string {
+function decodeBase64Url(data: string, charset = 'utf-8'): string {
   const binary = atob(data.replace(/-/g, '+').replace(/_/g, '/'));
   const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
   try { return new TextDecoder(charset).decode(bytes); }
   catch { return new TextDecoder().decode(bytes); }
 }
-export function htmlToText(html: string): string {
+function htmlToText(html: string): string {
   return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
     .replace(/<(?:br\b[^>]*|\/p|\/div|\/li|\/tr)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
@@ -48,9 +45,12 @@ export async function decodedBody(part: MimePart | undefined, getAttachment: (id
       }
       return '';
     }
-    const values: { type: string; text: string }[] = [];
-    for (const child of part.parts) values.push({ type: child.mimeType || '', text: await decodedBody(child, getAttachment) });
-    return values.map((value) => value.text).filter(Boolean).join('\n\n');
+    const values: string[] = [];
+    for (const child of part.parts) {
+      const text = await decodedBody(child, getAttachment);
+      if (text) values.push(text);
+    }
+    return values.join('\n\n');
   }
   if (part.mimeType !== 'text/plain' && part.mimeType !== 'text/html') return '';
   if ((part.body?.size || 0) > 240_000) throw new Error('Email body is too large for this prototype (60,000 text characters).');

@@ -60,18 +60,14 @@
 .dock-native-heading h1 { font-size: 22px; font-weight: 400; margin: 0; overflow-wrap: anywhere; }
 .dock-message-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font: 12px/1.5 Arial, sans-serif; color: #5f6368; }
 .dock-message-controls select { padding: 5px; font: inherit; border: 1px solid #dadce0; border-radius: 3px; background: #fff; color: #444746; }
-.dock-message-controls button { padding: 6px; }
-.dock-view-scope { margin: 0 24px 15px; color: #5f6368; font: 12px/1.6 Arial, sans-serif; }
 .dock-native-message-list { min-width: 0; }
 .dock-native-view .dock-native-message-row { display: flex; width: 100%; align-items: center; gap: 14px; min-height: 44px; padding: 9px 24px; border-top: 1px solid #eceff1; background: #f2f6fc; text-align: left; color: #202124; text-decoration: none; font: 14px/1.5 Arial, sans-serif; }
 .dock-native-view .dock-native-message-row:hover { position: relative; z-index: 1; box-shadow: inset 1px 0 #dadce0, inset -1px 0 #dadce0, 0 1px 2px #3c40434d; }
 .dock-native-view .dock-native-message-row.is-expanded { background: #eaf1fb; }
-.dock-native-view .dock-native-message-row.is-unread { background: #fff; }
 .dock-native-row-star, .dock-native-message-row > svg { color: #6f7478; flex-shrink: 0; }
 .dock-native-sender { flex: 0 1 160px; min-width: 75px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-native-message-text { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
 .dock-native-message-text > strong { font-weight: 400; }
-.is-unread .dock-native-sender, .is-unread .dock-native-message-text > strong { font-weight: 600; }
 .dock-native-snippet { color: #5f6368; }
 .dock-native-message-row time { font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 .dock-native-expanded { padding: 22px 32px 30px 65px; border-top: 1px solid #e0e3e7; border-bottom: 1px solid #e0e3e7; font: 14px/1.7 Arial, sans-serif; }
@@ -84,8 +80,6 @@
 .dock-native-empty h2 { margin: 0 0 7px; color: #3c4043; font-size: 17px; font-weight: 400; }
 .dock-native-empty p { margin: 0; font: 13px/1.7 Arial, sans-serif; }
 .dock-native-content-note { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 28px 20px 22px; color: #70757a; font: 12px/1.5 Arial, sans-serif; text-align: center; }
-.dock-native-content-note svg { flex-shrink: 0; }
-.dock-native-view .dock-load-more { align-self: center; margin: 18px 12px; }
 @media (pointer: coarse) { .dock-tab-actions { opacity: 1; pointer-events: auto; } .dock-tab-actions button { min-height: 40px; } .dock-dialog input, .dock-dialog textarea, .dock-dialog select { font-size: 16px; } }
 @media (max-width: 750px) { .dock-native-sender { flex-basis: 105px; } .dock-native-row-star { display: none; } .dock-native-view .dock-native-message-row { padding-left: 16px; padding-right: 16px; gap: 10px; } .dock-native-expanded { padding-left: 22px; } .dock-setup-button { margin-inline-start: 0; } .dock-days { flex-wrap: wrap; } .dock-native-heading { padding-left: 16px; padding-right: 16px; } }
 .dock-resume-choice { display: flex; align-items: center; gap: 4px; white-space: nowrap; } .dock-resume-choice input { accent-color: #0b57d0; margin: 0; } .dock-category-transfer { margin-top: 18px; border-top: 1px solid #e0e3e7; padding-top: 12px; } .dock-category-transfer summary { cursor: pointer; font-size: 13px; }

@@ -1,5 +1,5 @@
 /** Costs from https://developers.google.com/workspace/gmail/api/reference/quota. */
-export function gmailUnits(path: string, method = 'GET'): number {
+function gmailUnits(path: string, method = 'GET'): number {
   const resource = path.split('?')[0]!;
   if (resource === 'profile' || (resource === 'labels' && method === 'GET')) return 1;
   if (resource.startsWith('labels/')) return method === 'GET' ? 1 : 5;
@@ -17,8 +17,6 @@ export class GmailNetworkError extends Error {}
 
 interface RequestDependencies {
   fetch: typeof fetch;
-  now(): number;
-  sleep(ms: number): Promise<void>;
   traffic<T>(change: (traffic: GmailTraffic) => T): Promise<T>;
   check(runId?: string): Promise<void>;
   waiting(until: number, runId?: string): Promise<void>;
@@ -38,12 +36,12 @@ export class GmailRequests {
   constructor(private readonly deps: RequestDependencies) {}
 
   private async wait(ms: number, runId?: string): Promise<void> {
-    const until = this.deps.now() + ms;
-    while (this.deps.now() < until) {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
       await this.deps.check(runId);
       // Storage-backed checks keep an explicitly started run alive, and make Stop responsive.
       // No timer resumes work after the worker/browser restarts.
-      await this.deps.sleep(Math.min(1000, until - this.deps.now()));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1000, until - Date.now())));
     }
     await this.deps.check(runId);
   }
@@ -58,18 +56,18 @@ export class GmailRequests {
         await this.deps.check(runId);
         const timing = await this.deps.traffic((traffic) => ({ ...traffic }));
         const until = Math.max(timing.nextAt || 0, timing.retryAt || 0);
-        if (until > this.deps.now()) {
+        if (until > Date.now()) {
           // Never hold the request queue through a cooldown: a label-name refresh must
           // not prevent the active run from seeing Stop or showing its countdown.
           release();
-          if ((timing.retryAt || 0) > this.deps.now()) await this.deps.waiting(timing.retryAt!, runId);
-          await this.wait(Math.max(0, until - this.deps.now()), runId);
+          if ((timing.retryAt || 0) > Date.now()) await this.deps.waiting(timing.retryAt!, runId);
+          await this.wait(Math.max(0, until - Date.now()), runId);
           continue;
         }
         await this.deps.ready(runId);
         await this.deps.check(runId);
         // Target 4,800 units/minute, leaving headroom under the 6,000 default, with no burst.
-        await this.deps.traffic((traffic) => { traffic.nextAt = this.deps.now() + gmailUnits(path, init.method) * 12.5; });
+        await this.deps.traffic((traffic) => { traffic.nextAt = Date.now() + gmailUnits(path, init.method) * 12.5; });
         let response: Response;
         try {
           response = await this.deps.fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { ...init, signal: AbortSignal.timeout(20000) });
@@ -80,7 +78,7 @@ export class GmailRequests {
         const rateLimited = response.status === 429 || (response.status === 403 && reasons.some((reason) => ['rateLimitExceeded', 'userRateLimitExceeded'].includes(reason)));
         const detail = [reasons.join(', ') || payload.error?.status, payload.error?.message].filter(Boolean).join(': ').slice(0, 600);
         if (rateLimited) {
-          const until = this.deps.now() + Math.max(60000, 1000 * 2 ** attempt + Math.random() * 1000, retryAfter(response.headers.get('retry-after'), this.deps.now()));
+          const until = Date.now() + Math.max(60000, 1000 * 2 ** attempt + Math.random() * 1000, retryAfter(response.headers.get('retry-after'), Date.now()));
           const retryAt = await this.deps.traffic((traffic) => traffic.retryAt = Math.max(traffic.retryAt || 0, until));
           await this.deps.waiting(retryAt, runId);
         }
