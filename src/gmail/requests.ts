@@ -1,12 +1,4 @@
-/** Costs from https://developers.google.com/workspace/gmail/api/reference/quota. */
-function gmailUnits(path: string, method = 'GET'): number {
-  const resource = path.split('?')[0]!;
-  if (resource === 'profile' || (resource === 'labels' && method === 'GET')) return 1;
-  if (resource.startsWith('labels/')) return method === 'GET' ? 1 : 5;
-  if (resource === 'labels' || resource === 'messages' || resource.endsWith('/modify')) return 5;
-  // messages.get and messages.attachments.get both cost 20, including metadata reads.
-  return 20;
-}
+import { GMAIL_QUOTA_METHODS, gmailQuotaMethod, type GmailQuotaMethod } from './quota';
 
 export interface GmailTraffic { nextAt?: number; retryAt?: number }
 export class ApiError extends Error {
@@ -15,12 +7,15 @@ export class ApiError extends Error {
 export class RunStoppedError extends Error {}
 export class GmailNetworkError extends Error {}
 
+type GmailQuotaEvent = { retry: boolean } | { outcome: 'succeeded' | 'httpErrors' | 'networkErrors' };
+
 interface RequestDependencies {
   fetch: typeof fetch;
   traffic<T>(change: (traffic: GmailTraffic) => T): Promise<T>;
   check(runId?: string): Promise<void>;
   waiting(until: number, runId?: string): Promise<void>;
   ready(runId?: string): Promise<void>;
+  record(method: GmailQuotaMethod, event: GmailQuotaEvent, runId?: string): Promise<void>;
 }
 
 function retryAfter(value: string | null, now: number): number {
@@ -46,7 +41,7 @@ export class GmailRequests {
     await this.deps.check(runId);
   }
 
-  private async once(path: string, init: RequestInit, attempt: number, runId?: string): Promise<Response> {
+  private async once(path: string, init: RequestInit, method: GmailQuotaMethod, attempt: number, runId?: string, authRetry = false): Promise<Response> {
     while (true) {
       const previous = this.tail;
       let release!: () => void;
@@ -67,11 +62,18 @@ export class GmailRequests {
         await this.deps.ready(runId);
         await this.deps.check(runId);
         // Target 4,800 units/minute, leaving headroom under the 6,000 default, with no burst.
-        await this.deps.traffic((traffic) => { traffic.nextAt = Date.now() + gmailUnits(path, init.method) * 12.5; });
+        await this.deps.traffic((traffic) => { traffic.nextAt = Date.now() + GMAIL_QUOTA_METHODS[method].units * 12.5; });
+        // Save the attempt before dispatch. An interrupted worker leaves an unknown outcome.
+        await this.deps.record(method, { retry: authRetry || attempt > 0 }, runId);
         let response: Response;
         try {
           response = await this.deps.fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { ...init, signal: AbortSignal.timeout(20000) });
-        } catch { throw new GmailNetworkError('Gmail could not be reached. Completed work is saved; retry when connected.'); }
+        } catch {
+          await this.deps.record(method, { outcome: 'networkErrors' }, runId);
+          throw new GmailNetworkError('Gmail could not be reached. Completed work is saved; retry when connected.');
+        }
+        // Keep storage errors outside the fetch catch so they never cause a network retry.
+        await this.deps.record(method, { outcome: response.ok ? 'succeeded' : 'httpErrors' }, runId);
         if (response.ok) return response;
         const payload = await response.json().catch(() => ({})) as { error?: { message?: string; status?: string; errors?: { reason?: string }[] } };
         const reasons = (payload.error?.errors || []).map((error) => error.reason).filter((reason): reason is string => Boolean(reason));
@@ -91,9 +93,10 @@ export class GmailRequests {
     }
   }
 
-  async request(path: string, init: RequestInit, retry = true, runId?: string): Promise<Response> {
+  async request(path: string, init: RequestInit, retry = true, runId?: string, authRetry = false): Promise<Response> {
+    const method = gmailQuotaMethod(path, init.method);
     for (let attempt = 0; ; attempt++) {
-      try { return await this.once(path, init, attempt, runId); }
+      try { return await this.once(path, init, method, attempt, runId, authRetry); }
       catch (error) {
         if (error instanceof ApiError && error.rateLimited && retry && attempt < 6) continue;
         if (retry && attempt < 3 && (error instanceof GmailNetworkError || (error instanceof ApiError && [500, 502, 503, 504].includes(error.status)))) {

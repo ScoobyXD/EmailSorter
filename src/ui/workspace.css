@@ -39,6 +39,26 @@
 .dock-toolbar-error { flex: 1 1 180px; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-dialog { position: fixed; inset: 0; border: 1px solid #dadce0; border-radius: 12px; padding: 25px; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); margin: auto; background: #fff; color: #202124; box-shadow: 0 10px 40px #20212433; font: 14px/1.5 Arial, sans-serif; overflow: auto; }
 .dock-dialog::backdrop { background: #20212450; }
+.dock-dialog.dock-usage-dialog { width: 900px; }
+.dock-usage-meta { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 16px 0; font-size: 12px; }
+.dock-usage-meta > div { min-width: 0; }
+.dock-usage-meta dt, .dock-usage-summary dt { color: #5f6368; }
+.dock-usage-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.dock-usage-summary { display: flex; flex-wrap: wrap; gap: 16px 32px; padding: 16px; margin: 18px 0 8px; border: 1px solid #e0e3e7; border-radius: 6px; background: #f8fafd; }
+.dock-usage-summary dt { font-size: 12px; }
+.dock-usage-summary dd { margin: 3px 0 0; font-size: 25px; font-variant-numeric: tabular-nums; }
+.dock-usage-table-scroll { max-width: 100%; overflow-x: auto; margin-top: 18px; border: 1px solid #e0e3e7; border-radius: 6px; }
+.dock-usage-table-scroll:focus-visible, .dock-usage-dialog a:focus-visible { outline: 2px solid #0b57d0; outline-offset: 2px; }
+.dock-usage-table { width: 100%; border-collapse: collapse; font: 12px/1.5 Arial, sans-serif; font-variant-numeric: tabular-nums; }
+.dock-usage-table caption { text-align: left; padding: 12px; font-weight: 600; color: #444746; }
+.dock-usage-table th, .dock-usage-table td { padding: 10px 12px; border-top: 1px solid #e0e3e7; text-align: right; vertical-align: top; }
+.dock-usage-table thead th { font-weight: 600; background: #f8fafd; min-width: 72px; }
+.dock-usage-table th:first-child { text-align: left; min-width: 175px; }
+.dock-usage-table tbody th { font-weight: 400; }
+.dock-usage-table code, .dock-usage-table small { display: block; color: #5f6368; font-size: 11px; white-space: nowrap; }
+.dock-usage-table code { margin-top: 2px; font-family: monospace; }
+.dock-usage-table tfoot { font-weight: 600; background: #f8fafd; }
+.dock-usage-dialog a { color: #0b57d0; }
 .dock-dialog h2 { font-size: 21px; font-weight: 400; margin: 0 0 17px; overflow-wrap: anywhere; }
 .dock-dialog p { margin: 12px 0; overflow-wrap: anywhere; }
 .dock-dialog label { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 13px 0; color: #444746; font-size: 13px; }

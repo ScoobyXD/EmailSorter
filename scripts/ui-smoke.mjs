@@ -56,11 +56,60 @@ try {
   await page.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 2, succeeded: 2, status: 'completed' }); });
   await expect(page.getByText('2 labeled · Done', { exact: true })).toBeVisible();
   await page.screenshot({ path: path.join(directory, 'completed.png'), fullPage: true });
+  await checkGmailUsage(page, directory);
   await checkGmailNavigation(browser, fixtureHtml);
   expect(errors).toEqual([]); expect(unexpected).toEqual([]);
   console.log(JSON.stringify({ result: 'PASS', checks: ['current Gmail label names refresh once on load; native mail stays visible without a custom list', 'category, Uncategorized, Inbox and browser Back navigate without per-click API calls', 'pointer, Enter and arrow-key category controls preserve the verified account and current document', 'fresh label page, native label rename, reserved characters and missing labels', 'mismatch or unverified browser account uses an account-qualified Gmail URL', 'disconnected categories open Connection; label-refresh and OAuth errors remain visible', 'no classification before manual click, progress, disabled edits, Stop and explicit resume', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
 } catch (error) { console.error(JSON.stringify({ errors, unexpected })); throw error; }
 finally { await context.close(); await browser.close(); }
+
+async function checkGmailUsage(page, directory) {
+  const button = page.getByRole('button', { name: 'Gmail usage', exact: true });
+  await button.click();
+  const dialog = page.getByRole('dialog', { name: 'Gmail usage', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Gmail usage is unavailable for this run.', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const run = window.fixture.state.run;
+    const entry = (method, unitsPerRequest, requests, succeeded = requests, retries = 0, httpErrors = 0, networkErrors = 0) => ({ method, unitsPerRequest, requests, succeeded, retries, httpErrors, networkErrors });
+    run.accountEmail = 'ui-fixture@example.test';
+    run.gmailUsage = { startedAt: run.startedAt, complete: true, methods: [
+      entry('getProfile', 1, 2, 1, 1, 1),
+      entry('messages.list', 5, 2),
+      entry('labels.list', 1, 1),
+      entry('labels.create', 5, 1),
+      entry('labels.patch', 5, 6),
+      entry('messages.get', 20, 125, 121, 5, 2, 1),
+      entry('messages.attachments.get', 20, 3),
+      entry('messages.modify', 5, 100),
+    ] };
+    window.fixture.state.runHistory = [
+      { ...structuredClone(run), id: 'partial-run', startedAt: run.startedAt - 60000, gmailUsage: { startedAt: run.startedAt - 30000, complete: false, methods: [entry('messages.list', 5, 1)] } },
+      { ...structuredClone(run), id: 'legacy-run', startedAt: run.startedAt - 120000, gmailUsage: undefined },
+    ];
+  });
+  const table = dialog.getByRole('table', { name: 'Gmail quota units by operation' });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'messages.get' })).toContainText('2,500');
+  await expect(dialog).toContainText('3,108');
+  await expect(dialog).toContainText('240');
+  await expect(dialog).toContainText('ui-fixture@example.test');
+  await page.screenshot({ path: path.join(directory, 'gmail-usage.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: path.join(directory, 'gmail-usage-mobile.png'), fullPage: true });
+  await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('partial-run');
+  await expect(dialog).toContainText(/partial/i);
+  await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('legacy-run');
+  await expect(dialog.getByText('Gmail usage is unavailable for this run.', { exact: true })).toBeVisible();
+  await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('fixture-run');
+  await expect(dialog).toContainText('3,108');
+  await dialog.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(button).toBeFocused();
+  await page.setViewportSize({ width: 1100, height: 1000 });
+}
 
 async function checkGmailNavigation(browser, body) {
   const navigation = await browser.newContext({ viewport: { width: 1100, height: 1000 } });

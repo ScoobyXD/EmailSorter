@@ -1,4 +1,4 @@
-# Dock 0.4.6 — manual Gmail categories
+# Dock 0.4.7 — manual Gmail categories
 
 Dock adds category tabs inside Gmail. Press **Categorize emails** to classify only messages currently in Inbox received within the selected date window (30 days by default). There is no schedule, new-mail watcher, overnight worker, or urgency ranking. Outlook and the standalone preview remain sample-only.
 
@@ -10,7 +10,7 @@ The old Codex workspace paths forward to this project for compatibility with the
 
 ## Update the installed Dock
 
-1. The existing `outputs\dock-extension` folder contains **0.4.6**. Reload **Dock — Gmail Categories** in `chrome://extensions`, then refresh Gmail.
+1. The existing `outputs\dock-extension` folder contains **0.4.7**. Reload **Dock — Gmail Categories** in `chrome://extensions`, then refresh Gmail.
 2. Keep the same installed extension (`ccklhlnpillicildcgbdfibggkkhkdib`) to preserve saved categories and checkpoints.
 3. Categorize emails, the days slider, progress, resume, and errors share Gmail's top action toolbar, above the category tabs.
 4. The toolbar omits the scope and account text. Connection settings still show the connected account.
@@ -20,6 +20,9 @@ The old Codex workspace paths forward to this project for compatibility with the
 8. Gmail layouts with a narrow native action group use its shared toolbar row. Controls sit between the three-dot menu and pagination.
 9. Label renaming covers current saved categories and Uncategorized. Untracked duplicates and removed categories require separate cleanup.
 10. Dock controls stay in Gmail's sticky toolbar while scrolling. Buttons receive clicks above Gmail's toolbar decoration.
+11. **Gmail usage** shows quota units by operation for the current run and the latest 20 previous runs.
+12. Usage includes request attempts, retries, and errors. Resume keeps the same counters. Older runs can show unavailable or partial tracking.
+13. Units are estimates from Google's method costs. They are not confirmed billing totals. See [Gmail quota rules](docs/tests/gmail-quota.md).
 
 ## First installation
 

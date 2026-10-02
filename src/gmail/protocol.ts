@@ -1,3 +1,5 @@
+import type { GmailQuotaMethod } from './quota';
+
 export interface DockCategory {
   id: string;
   title: string;
@@ -8,6 +10,21 @@ export interface DockCategory {
   labelId?: string;
   /** Current Gmail label name, resolved by its immutable ID. */
   labelName?: string;
+}
+export interface GmailQuotaEntry {
+  method: GmailQuotaMethod;
+  unitsPerRequest: number;
+  requests: number;
+  retries: number;
+  succeeded: number;
+  httpErrors: number;
+  networkErrors: number;
+}
+export interface GmailQuotaUsage {
+  startedAt: number;
+  /** False when the run began before quota tracking was available. */
+  complete: boolean;
+  methods: GmailQuotaEntry[];
 }
 export interface RunProgress {
   id: string;
@@ -23,6 +40,8 @@ export interface RunProgress {
   updatedAt: number;
   retryAt?: number;
   error?: string;
+  accountEmail?: string;
+  gmailUsage?: GmailQuotaUsage;
 }
 export interface DockState {
   version: 2;
@@ -33,6 +52,7 @@ export interface DockState {
   helperReady: boolean;
   oauthConfigured: boolean;
   run?: RunProgress;
+  runHistory?: RunProgress[];
   error?: string;
 }
 export type DockRequest = { type: 'dock:api' } & (

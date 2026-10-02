@@ -63,18 +63,28 @@ export function initialState(legacy?: unknown): StoredState {
   return { version: 2, installationId: crypto.randomUUID(), categories, daysBack: 30 };
 }
 export function publicState(state: StoredState, oauthConfigured: boolean): DockState {
-  const run = state.run;
   return {
     version: 2, categories: state.categories, daysBack: state.daysBack,
     accountEmail: state.accountEmail, helperReady: Boolean(state.helperToken), oauthConfigured,
     uncategorizedLabelName: state.uncategorizedLabelName,
     error: state.error,
-    ...(run ? { run: {
-      id: run.id, status: run.status, phase: run.phase, daysBack: run.daysBack, total: run.total,
-      processed: run.processed, succeeded: run.succeeded, failed: run.failed, skipped: run.skipped,
-      startedAt: run.startedAt, updatedAt: run.updatedAt, error: run.error, retryAt: run.retryAt,
-    } } : {}),
+    ...(state.run ? { run: runProgress(state.run) } : {}),
+    runHistory: state.runHistory,
   };
+}
+/** Reuse this summary for the public API and persisted history. Never copy run items or decisions. */
+export function runProgress(run: StoredRun): RunProgress {
+  return {
+    id: run.id, status: run.status, phase: run.phase, daysBack: run.daysBack, total: run.total,
+    processed: run.processed, succeeded: run.succeeded, failed: run.failed, skipped: run.skipped,
+    startedAt: run.startedAt, updatedAt: run.updatedAt, error: run.error, retryAt: run.retryAt,
+    accountEmail: run.accountEmail,
+    gmailUsage: run.gmailUsage ? structuredClone(run.gmailUsage) : undefined,
+  };
+}
+export function archiveRun(state: StoredState): void {
+  if (!state.run) return;
+  state.runHistory = [runProgress(state.run), ...(state.runHistory || []).filter((run) => run.id !== state.run!.id)].slice(0, 20);
 }
 export function recalculate(run: StoredRun): void {
   run.total = run.items.length;

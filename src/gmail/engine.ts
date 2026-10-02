@@ -1,6 +1,7 @@
 import { decodedBody, header, type GmailFullMessage } from './mime';
-import { COLORS, initialState, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
+import { archiveRun, COLORS, initialState, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
 import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse } from './protocol';
+import { GMAIL_QUOTA_METHODS } from './quota';
 import { ApiError, GmailNetworkError, GmailRequests, RunStoppedError } from './requests';
 
 interface EngineDependencies {
@@ -63,6 +64,27 @@ export class GmailEngine {
       ready: async (runId) => {
         await this.update((state) => {
           if (state.run && (!runId || state.run.id === runId) && (state.run.retryAt || 0) <= Date.now()) delete state.run.retryAt;
+        });
+      },
+      record: async (method, event, runId) => {
+        if (!runId) return;
+        await this.update((state) => {
+          const run = state.run;
+          if ('retry' in event && (run?.id !== runId || run.status !== 'running')) throw new RunStoppedError();
+          if (run?.id !== runId) return;
+          const usage = run.gmailUsage ||= { startedAt: Date.now(), complete: false, methods: [] };
+          let entry = usage.methods.find((item) => item.method === method);
+          if (!entry) {
+            entry = { method, unitsPerRequest: GMAIL_QUOTA_METHODS[method].units, requests: 0, retries: 0, succeeded: 0, httpErrors: 0, networkErrors: 0 };
+            usage.methods.push(entry);
+          }
+          if ('retry' in event) {
+            entry.requests++;
+            if (event.retry) entry.retries++;
+          } else {
+            entry[event.outcome]++;
+          }
+          run.updatedAt = Date.now();
         });
       },
     });
@@ -213,6 +235,7 @@ export class GmailEngine {
         else delete state.uncategorizedLabelId;
         delete state.uncategorizedLabelName;
         delete state.labelIdsByAccount[profile.emailAddress];
+        archiveRun(state);
         delete state.run;
       }
       state.labelAccountEmail = profile.emailAddress;
@@ -289,12 +312,14 @@ export class GmailEngine {
     await this.update((current) => {
       if (active(current.run)) throw new Error('A run is already active.');
       current.daysBack = daysBack;
+      archiveRun(current);
       current.run = {
         id: crypto.randomUUID(), owner: this.owner, status: 'running', phase: 'discovering', daysBack,
         cutoff: now - daysBack * 86400000, before: now,
         query: `after:${Math.floor((now - daysBack * 86400000) / 1000)} before:${Math.ceil(now / 1000)}`,
         total: 0, processed: 0, succeeded: 0, failed: 0, skipped: 0, startedAt: now, updatedAt: now,
         categories: structuredClone(current.categories), accountEmail: current.accountEmail!, discovered: false, items: [],
+        gmailUsage: { startedAt: now, complete: true, methods: [] },
       };
     });
     this.launch();
@@ -310,6 +335,7 @@ export class GmailEngine {
     await this.helper('health', state.helperToken!);
     await this.update((current) => {
       const run = current.run!;
+      run.gmailUsage ||= { startedAt: Date.now(), complete: false, methods: [] };
       const changed = JSON.stringify(categoryDefinitions(run.categories)) !== JSON.stringify(categoryDefinitions(current.categories));
       for (const item of run.items) {
         if (item.status === 'failed') { item.status = 'pending'; delete item.error; }
@@ -532,6 +558,8 @@ export class GmailEngine {
   }
   private async gmail<T = unknown>(path: string, init: RequestInit = {}, retry = true, runId?: string): Promise<T> {
     let refreshed = false;
+    let requestRetried = false;
+    let profileRetried = false;
     while (true) {
       let token: string;
       try { token = await this.deps.token(false); }
@@ -540,9 +568,9 @@ export class GmailEngine {
         const expected = (await this.read()).accountEmail;
         let actual = this.tokenProfiles.get(token);
         if (!actual) {
-          try { actual = (await this.profileForToken(token, runId)).emailAddress; }
+          try { actual = (await this.profileForToken(token, runId, profileRetried)).emailAddress; }
           catch (error) {
-            if (error instanceof ApiError && error.status === 401 && !refreshed) { refreshed = true; await this.deps.invalidateToken(token); continue; }
+            if (error instanceof ApiError && error.status === 401 && !refreshed) { refreshed = true; profileRetried = true; await this.deps.invalidateToken(token); continue; }
             throw error;
           }
         }
@@ -554,10 +582,10 @@ export class GmailEngine {
       }
       let response: Response;
       try {
-        response = await this.requests.request(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, retry, runId);
+        response = await this.requests.request(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, retry, runId, requestRetried);
       } catch (error) {
         if (error instanceof ApiError && error.status === 401 && !refreshed) {
-          refreshed = true; await this.deps.invalidateToken(token); this.tokenProfiles.delete(token); continue;
+          refreshed = true; requestRetried = true; await this.deps.invalidateToken(token); this.tokenProfiles.delete(token); continue;
         }
         throw error;
       }
@@ -565,9 +593,9 @@ export class GmailEngine {
       return await response.json() as T;
     }
   }
-  private async profileForToken(token: string, runId?: string): Promise<{ emailAddress: string }> {
+  private async profileForToken(token: string, runId?: string, authRetry = false): Promise<{ emailAddress: string }> {
     let response: Response;
-    try { response = await this.requests.request('profile', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, true, runId); }
+    try { response = await this.requests.request('profile', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, true, runId, authRetry); }
     catch (error) {
       if (error instanceof ApiError && error.status === 401) { await this.deps.invalidateToken(token); this.tokenProfiles.delete(token); }
       throw error;

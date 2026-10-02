@@ -1,5 +1,24 @@
 # Dock verification — October 2, 2026
 
+## 0.4.7 Gmail quota observability
+
+1. The extension TypeScript check and production build pass.
+2. Quota counters match every synthetic Gmail request by method, unit cost, outcome, and retry.
+3. Authentication, server, and network retries pass through the built extension's actual runtime API.
+4. Stop during a quota wait adds no request. Resume and an actual Chromium restart preserve counters.
+5. New runs reset counters and retain 20 previous summaries. Legacy resumes show partial tracking.
+6. Outside-run label refreshes leave run totals unchanged. Public snapshots exclude private run fields.
+7. `scripts/ui-smoke.mjs` passes for quota totals, history selection, legacy and partial states, narrow layouts, and keyboard focus.
+8. `scripts/clipping-smoke.mjs --nested-toolbar` passes 11 toolbar layout scenarios.
+9. No unit tests were created or run. All Gmail and helper responses were synthetic.
+10. Quota evidence: `test-results/quota-observability/run-1790981993653/evidence.json`.
+11. UI evidence: `test-results/ui-fixture/gmail-usage.png` and `gmail-usage-mobile.png`.
+12. Toolbar evidence: `test-results/clipping/0.4.7-1790981930893/report.json`.
+13. Business rules: `docs/tests/gmail-quota.md`.
+14. Reproduce quota E2E checks with `node test-results/quota-observability/verify.mjs` after building the extension.
+
+## 0.4.6 cleanup
+
 1. Extension and helper TypeScript checks pass.
 2. The production extension build passes.
 3. `scripts/smoke.mjs` passes for Gmail, four Outlook hosts, and the standalone preview.
