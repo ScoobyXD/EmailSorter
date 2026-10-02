@@ -19,6 +19,7 @@ export function Preview() {
   const [nativeTab, setNativeTab] = useState('primary');
   const [resetSelectionToken, setResetSelectionToken] = useState(0);
   const [tabsTarget, setTabsTarget] = useState<HTMLDivElement | null>(null);
+  const [controlsTarget, setControlsTarget] = useState<HTMLDivElement | null>(null);
   const [viewTarget, setViewTarget] = useState<HTMLDivElement | null>(null);
 
   function selectNative(tab: string) {
@@ -51,7 +52,7 @@ export function Preview() {
             <div className="compose-look"><Mail size={20}/>Compose</div><div className="mail-nav-row selected"><Inbox size={18}/>Inbox<span>12</span></div><div className="mail-nav-row"><Star size={18}/>Starred</div><div className="mail-nav-row"><Clock3 size={18}/>Snoozed</div><div className="mail-nav-row"><Send size={18}/>Sent</div><div className="mail-nav-row"><FileText size={18}/>Drafts<span>2</span></div><div className="mail-nav-label">Labels</div><div className="mail-nav-row"><span className="label-dot"/>Operations</div><div className="mail-nav-row"><span className="label-dot"/>Follow up</div><div className="mock-note">Illustrative mailbox<br/>Sample messages only</div>
           </nav>
           <div className="mail-content">
-            <div className="mail-list-tools"><span className="mail-check"/><ChevronDown size={14}/><span className="refresh-look">↻</span><span className="mail-count">Sample inbox</span></div>
+            <div className="mail-list-tools"><span className="mail-check"/><ChevronDown size={14}/><span className="refresh-look">↻</span><span aria-hidden="true">⋮</span><div className="mail-dock-controls" ref={setControlsTarget}/><span className="mail-count">Sample inbox</span></div>
             <div className="mail-category-row" aria-label={`${provider} inbox categories`}>
               <button role="tab" aria-selected={!selected && nativeTab === 'primary'} className="mail-native-tab" onClick={() => selectNative('primary')}><Inbox size={20}/><span>{provider === 'Gmail' ? 'Primary' : 'Focused'}</span></button>
               {nativeTabs.map(({ name, icon: Icon }) => <button key={name} role="tab" aria-selected={!selected && nativeTab === name} className="mail-native-tab" onClick={() => selectNative(name)}><Icon size={20}/><span>{name}</span></button>)}
@@ -69,7 +70,7 @@ export function Preview() {
           </div>
         </div>
       </div>
-      <Workspace mode={provider === 'Outlook' ? 'outlook' : 'preview'} storage={previewStorage} tabsTarget={tabsTarget} viewTarget={viewTarget} onSelectionChange={setSelected} resetSelectionToken={resetSelectionToken}/>
+      <Workspace mode={provider === 'Outlook' ? 'outlook' : 'preview'} storage={previewStorage} tabsTarget={tabsTarget} controlsTarget={controlsTarget} viewTarget={viewTarget} onSelectionChange={setSelected} resetSelectionToken={resetSelectionToken}/>
       <footer className="prototype-footnote">Demo messages only · Changes stay in this browser</footer>
     </main>
     {help && <div className="install-backdrop" onClick={() => setHelp(false)}><section role="dialog" aria-modal="true" aria-labelledby="install-title" className="install-dialog" onClick={event => event.stopPropagation()}><button className="install-close" aria-label="Close installation instructions" onClick={() => setHelp(false)}><X size={20}/></button><h2 id="install-title">Use Dock with Gmail</h2><p>This page is a sample preview. The delivered extension can categorize real Gmail messages after local setup.</p><ol><li>Follow <strong>INSTALL.md</strong> to configure and start the local helper.</li><li>Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, and load the delivered <strong>dock-extension</strong> folder.</li><li>Refresh Gmail and choose <strong>Connect Gmail</strong> to pair the helper and authorize Gmail.</li><li>Review the category descriptions and days slider, then press <strong>Categorize emails</strong>.</li></ol><div className="install-note">The Gmail version uses colored Gmail labels and keeps your emails in place. Outlook remains a sample demo with no account connection.</div><button className="install-done" onClick={() => setHelp(false)}>Got it <ArrowRight size={17}/></button></section></div>}

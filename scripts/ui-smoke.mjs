@@ -23,22 +23,12 @@ page.on('pageerror', error => errors.push(error.message));
 try {
   await page.goto(pathToFileURL(html).href);
   await expect(page.getByRole('button', { name: 'Categorize emails', exact: true })).toBeEnabled();
+  await expect(page.getByText(/^Only messages currently in Inbox/)).toHaveCount(0);
+  await expect(page.getByText(/^Categorization account:/)).toHaveCount(0);
   expect(await page.evaluate(() => window.fixture.starts)).toBe(0);
-  await page.getByRole('tab', { name: 'Home repair', exact: true }).click();
-  const link = page.getByRole('link', { name: 'Open Gmail conversation: Sink repair appointment', exact: true });
-  await expect(link).toHaveAttribute('href', 'https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test#all/thread-a');
-  await expect(link).toHaveClass(/is-unread/);
-  await page.getByRole('button', { name: 'Load more messages' }).click();
-  await expect(page.getByRole('link', { name: /^Open Gmail conversation:/ })).toHaveCount(2);
-  await page.getByLabel('Message order', { exact: true }).selectOption('oldest');
-  await expect(page.getByRole('link', { name: /^Open Gmail conversation:/ }).first()).toHaveText(/Fixture receipt/);
-  expect(await page.evaluate(() => window.fixture.starts)).toBe(0);
-  await page.evaluate(() => { window.fixture.failList = true; });
-  await page.getByRole('button', { name: 'Refresh category messages' }).click();
-  await expect(page.getByRole('alert')).toContainText('Fixture Gmail access expired');
-  await page.evaluate(() => { window.fixture.failList = false; });
-  await page.getByRole('button', { name: 'Refresh category messages' }).click();
-  await expect(link).toBeVisible();
+  expect(await page.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
+  await expect(page.locator('#fixture-native-mail')).toBeVisible();
+  await expect(page.locator('#fixture-custom-view')).toBeHidden();
 
   await page.getByRole('button', { name: 'Connection', exact: true }).click();
   await page.getByRole('button', { name: 'Reconnect Gmail', exact: true }).click();
@@ -50,24 +40,25 @@ try {
   await expect(page.getByRole('button', { name: 'Edit Home repair' })).toBeDisabled();
   await expect(page.getByRole('slider', { name: 'Days back' })).toBeDisabled();
   await page.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 1, succeeded: 1 }); });
-  await expect(page.getByText('Categorizing: 1 of 2 messages processed.', { exact: true })).toBeVisible();
+  await expect(page.getByText('1 labeled · 1/2 processed', { exact: true })).toBeVisible();
   await page.evaluate(() => { window.fixture.state.run.retryAt = Date.now() + 60000; });
-  await expect(page.getByText(/Waiting for Gmail’s rate limit\. Retrying in \d+ seconds; 1 labeled/)).toBeVisible();
+  await expect(page.getByText(/1 labeled · Retry in \d+s/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
   await page.screenshot({ path: path.join(directory, 'rate-limit.png'), fullPage: true });
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
-  await expect(page.getByText(/Stopped\. 1 of 2 processed/)).toBeVisible();
+  await expect(page.getByText('1 labeled · 1/2 processed · Stopped', { exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Resume unfinished', exact: true })).toBeChecked();
   await page.evaluate(() => { delete window.fixture.state.run.retryAt; });
   expect(await page.evaluate(() => window.fixture.stops)).toBe(1);
   await page.getByRole('button', { name: 'Categorize emails', exact: true }).click();
   expect(await page.evaluate(() => window.fixture.resumes)).toBe(1);
   expect(await page.evaluate(() => window.fixture.starts)).toBe(1);
   await page.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 2, succeeded: 2, status: 'completed' }); });
-  await expect(page.getByText('Finished. 2 labeled, 0 skipped, 0 failed.', { exact: true })).toBeVisible();
+  await expect(page.getByText('2 labeled · Done', { exact: true })).toBeVisible();
   await page.screenshot({ path: path.join(directory, 'completed.png'), fullPage: true });
   await checkGmailNavigation(browser, fixtureHtml);
   expect(errors).toEqual([]); expect(unexpected).toEqual([]);
-  console.log(JSON.stringify({ result: 'PASS', checks: ['real-mode category link and account URL, unread message, paging dedupe, ordering', 'message loading error and explicit refresh recovery', 'OAuth error is actionable in Connection dialog', 'no classification before manual click, run progress, disabled edits during run, Stop', 'explicit resume keeps completed work and successful completion feedback', 'Gmail pointer/Enter conversation navigation preserves document, account path/query and browser Back', 'modified/middle clicks preserve selection and account-qualified link; mismatch/unknown account uses original link', 'account identity comes from native profile label/title or explicit email authuser; no classification on navigation', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', checks: ['current Gmail label names refresh once on load; native mail stays visible without a custom list', 'category, Uncategorized, Inbox and browser Back navigate without per-click API calls', 'pointer, Enter and arrow-key category controls preserve the verified account and current document', 'fresh label page, native label rename, reserved characters and missing labels', 'mismatch or unverified browser account uses an account-qualified Gmail URL', 'disconnected categories open Connection; label-refresh and OAuth errors remain visible', 'no classification before manual click, progress, disabled edits, Stop and explicit resume', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
 } catch (error) { console.error(JSON.stringify({ errors, unexpected })); throw error; }
 finally { await context.close(); await browser.close(); }
 
@@ -76,7 +67,7 @@ async function checkGmailNavigation(browser, body) {
   const documentRequests = [];
   const failures = [];
   const permittedLoads = new Set();
-  // Every resource is intercepted; these pages contain synthetic data only.
+  // Every resource is intercepted. These pages contain synthetic data only.
   await navigation.route('**/*', async route => {
     const request = route.request();
     const url = request.url();
@@ -91,13 +82,15 @@ async function checkGmailNavigation(browser, body) {
   const gmail = await navigation.newPage();
   gmail.on('pageerror', error => failures.push(error.message));
   const category = gmail.getByRole('tab', { name: 'Home repair', exact: true });
-  const conversation = gmail.getByRole('link', { name: 'Open Gmail conversation: Sink repair appointment', exact: true });
-  const accountUrl = 'https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test#all/thread-a';
+  const uncategorized = gmail.getByRole('tab', { name: 'Uncategorized', exact: true });
+  const inbox = gmail.getByRole('button', { name: 'Back to Gmail inbox', exact: true });
+  const labelHash = '#label/Dock%2FHousehold+%2B+repair+%5Bhome-repair%5D';
+  const uncategorizedHash = '#label/Dock%2FUncategorized';
+  const accountUrl = `https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test${labelHash}`;
   async function load(url) {
     permittedLoads.add(url.split('#')[0]);
     await gmail.goto(url);
     await expect(category).toBeEnabled();
-    await gmail.evaluate(() => { window.fixture.documentId = crypto.randomUUID(); });
   }
   async function profile(email, attribute = 'aria-label') {
     await gmail.evaluate(({ email, attribute }) => {
@@ -114,76 +107,109 @@ async function checkGmailNavigation(browser, body) {
       document.body.prepend(header);
     }, { email, attribute });
   }
-  async function select() {
-    await category.click();
-    await expect(conversation).toBeVisible();
-    await expect(conversation).toHaveAttribute('href', accountUrl);
-  }
   async function inPlace(activate) {
-    await select();
-    const before = await gmail.evaluate(() => ({ documentId: window.fixture.documentId, pathname: location.pathname, search: location.search, url: location.href }));
+    const before = await gmail.evaluate(() => ({ documentId: window.fixture.documentId, pathname: location.pathname, search: location.search, url: location.href, commands: [...window.fixture.commands] }));
     const requestsBefore = documentRequests.length;
     await activate();
-    await expect(gmail).toHaveURL(`${before.url.split('#')[0]}#all/thread-a`);
-    await expect(gmail.getByRole('button', { name: 'Back to inbox', exact: true })).toBeHidden();
-    expect(await gmail.evaluate(() => ({ documentId: window.fixture.documentId, pathname: location.pathname, search: location.search }))).toEqual({ documentId: before.documentId, pathname: before.pathname, search: before.search });
+    await expect(gmail).toHaveURL(`${before.url.split('#')[0]}${labelHash}`);
+    await expect(category).toHaveAttribute('aria-selected', 'true');
+    await expect(gmail.locator('#fixture-native-mail')).toBeVisible();
+    await expect(gmail.locator('#fixture-custom-view')).toBeHidden();
+    await expect(gmail.getByRole('link', { name: /^Open Gmail conversation:/ })).toHaveCount(0);
+    expect(await gmail.evaluate(() => ({ documentId: window.fixture.documentId, pathname: location.pathname, search: location.search, commands: window.fixture.commands }))).toEqual({ documentId: before.documentId, pathname: before.pathname, search: before.search, commands: before.commands });
     expect(documentRequests).toHaveLength(requestsBefore);
     await gmail.goBack();
     await expect(gmail).toHaveURL(before.url);
+    await expect(category).toHaveAttribute('aria-selected', 'false');
     expect(await gmail.evaluate(() => window.fixture.documentId)).toBe(before.documentId);
     expect(documentRequests).toHaveLength(requestsBefore);
   }
-  async function nativeDefault(options = {}, preserveSelection = false) {
-    await select();
-    const before = gmail.url();
-    // Observe default prevention after React handles the event, then suppress
-    // the browser's native action so fallback/new-tab tests stay wholly local.
-    await gmail.evaluate(() => {
-      window.fixture.navigationEvent = undefined;
-      const record = event => {
-        const anchor = event.composedPath().find(node => node instanceof HTMLAnchorElement);
-        if (!anchor?.classList.contains('dock-native-message-row')) return;
-        window.fixture.navigationEvent = { prevented: event.defaultPrevented, href: anchor.href };
-        event.preventDefault();
-        document.removeEventListener('click', record);
-        document.removeEventListener('auxclick', record);
-      };
-      document.addEventListener('click', record);
-      document.addEventListener('auxclick', record);
-    });
-    await conversation.click(options);
-    expect(await gmail.evaluate(() => window.fixture.navigationEvent)).toEqual({ prevented: false, href: accountUrl });
-    await expect(gmail).toHaveURL(before);
-    if (preserveSelection) {
+  async function accountFallback() {
+    const before = await gmail.evaluate(() => ({ documentId: window.fixture.documentId, url: location.href }));
+    const requestsBefore = documentRequests.length;
+    const reloads = before.url.split('#')[0] !== accountUrl.split('#')[0];
+    if (reloads) permittedLoads.add(accountUrl.split('#')[0]);
+    await category.click();
+    await expect(gmail).toHaveURL(accountUrl);
+    await expect(category).toBeEnabled();
+    expect(documentRequests).toHaveLength(requestsBefore + Number(reloads));
+    if (reloads) {
+      expect(await gmail.evaluate(() => window.fixture.documentId)).not.toBe(before.documentId);
       await expect(category).toHaveAttribute('aria-selected', 'true');
-      await expect(conversation).toBeVisible();
-    }
+    } else expect(await gmail.evaluate(() => window.fixture.documentId)).toBe(before.documentId);
+    expect(await gmail.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
   }
   try {
     await load('https://mail.google.com/mail/u/2/?dock-ui-navigation=1&authuser=2&zx=fixture#inbox');
     await profile('UI-Fixture@Example.Test');
-    await inPlace(() => conversation.click());
-    await inPlace(async () => { await conversation.focus(); await conversation.press('Enter'); });
-    for (const modifier of ['Control', 'Meta', 'Shift', 'Alt']) await nativeDefault({ modifiers: [modifier] }, true);
-    await nativeDefault({ button: 'middle' }, true);
+    expect(await gmail.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
+    await inPlace(() => category.click());
+    await inPlace(async () => { await category.focus(); await category.press('Enter'); });
     await profile('ui-fixture@example.test', 'title');
-    await inPlace(() => conversation.click());
-    await profile('different@example.test');
-    await nativeDefault();
-    await profile(null);
-    await nativeDefault(); // Numeric account slots do not identify an email.
+    await inPlace(() => category.click());
+    await category.focus();
+    await category.press('ArrowRight');
+    await expect(uncategorized).toBeFocused();
+    await uncategorized.press('Enter');
+    await expect(gmail).toHaveURL(`https://mail.google.com/mail/u/2/?dock-ui-navigation=1&authuser=2&zx=fixture${uncategorizedHash}`);
+    await expect(uncategorized).toHaveAttribute('aria-selected', 'true');
+    await inbox.click();
+    await expect(gmail).toHaveURL('https://mail.google.com/mail/u/2/?dock-ui-navigation=1&authuser=2&zx=fixture#inbox');
+    expect(await gmail.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
     expect(await gmail.evaluate(() => window.fixture.starts)).toBe(0);
 
-    await load('https://mail.google.com/mail/u/?dock-ui-navigation=2&authuser=ui-fixture%40example.test#inbox');
-    await inPlace(() => conversation.click()); // Explicit account email, no badge.
+    await load(`https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test${labelHash}`);
+    await expect(category).toHaveAttribute('aria-selected', 'true');
+    await inbox.click();
+    await inPlace(() => category.click()); // Explicit account email works without a badge.
     await profile('different@example.test');
-    await nativeDefault(); // Visible account takes precedence over a stale query.
-    expect(await gmail.evaluate(() => window.fixture.starts)).toBe(0);
+    await accountFallback(); // Visible account takes precedence over a stale query.
 
-    await load('https://mail.google.com/mail/u/0/?dock-ui-navigation=3&authuser=different%40example.test#inbox');
-    await nativeDefault();
+    await load('https://mail.google.com/mail/u/0/?dock-ui-navigation=unknown&authuser=0#inbox');
+    await accountFallback(); // Numeric slots do not identify an account email.
+    await load('https://mail.google.com/mail/u/1/?authuser=different%40example.test#inbox');
+    await accountFallback();
+
+    await load('https://mail.google.com/mail/u/0/?scenario=rename-during-run&authuser=ui-fixture%40example.test#inbox');
+    await category.click();
     expect(await gmail.evaluate(() => window.fixture.starts)).toBe(0);
-    expect(documentRequests).toHaveLength(3);
+    await gmail.getByRole('button', { name: 'Categorize emails', exact: true }).click();
+    await expect(gmail.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+    await gmail.evaluate(() => { window.fixture.state.categories[0].labelName = 'Household renamed'; });
+    await expect(gmail).toHaveURL(/#label\/Household\+renamed$/);
+    await expect(category).toHaveAttribute('aria-selected', 'true');
+    expect(await gmail.evaluate(() => window.fixture.starts)).toBe(1);
+    expect(await gmail.evaluate(() => window.fixture.commands.filter(command => command === 'refreshLabels'))).toHaveLength(1);
+    await gmail.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 2, succeeded: 2, status: 'completed' }); });
+    await expect(gmail.getByText('2 labeled · Done', { exact: true })).toBeVisible();
+
+    await load('https://mail.google.com/mail/u/0/?scenario=missing-label&authuser=ui-fixture%40example.test#inbox');
+    const missingUrl = gmail.url();
+    await category.click();
+    await expect(gmail.getByRole('alert')).toBeVisible();
+    await expect(gmail).toHaveURL(missingUrl);
+    await expect(gmail.locator('#fixture-custom-view')).toBeHidden();
+    expect(await gmail.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
+
+    await load('https://mail.google.com/mail/u/0/?scenario=missing-uncategorized&authuser=ui-fixture%40example.test#inbox');
+    const missingUncategorizedUrl = gmail.url();
+    await uncategorized.click();
+    await expect(gmail.getByRole('alert')).toBeVisible();
+    await expect(gmail).toHaveURL(missingUncategorizedUrl);
+    expect(await gmail.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
+
+    await load('https://mail.google.com/mail/u/0/?scenario=refresh-fails&authuser=ui-fixture%40example.test#inbox');
+    await expect(gmail.getByRole('alert')).toContainText('Fixture Gmail access expired');
+    await category.click();
+    await expect(gmail).toHaveURL(/#inbox$/);
+    expect(await gmail.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
+
+    await load('https://mail.google.com/mail/u/0/?scenario=disconnected#inbox');
+    await category.click();
+    await expect(gmail.getByRole('dialog', { name: 'Connect Dock', exact: true })).toBeVisible();
+    await expect(gmail).toHaveURL(/#inbox$/);
+    await expect(gmail.locator('#fixture-custom-view')).toBeHidden();
+    expect(await gmail.evaluate(() => window.fixture.starts)).toBe(0);
     expect(failures).toEqual([]);
   } finally { await navigation.close(); }
 }

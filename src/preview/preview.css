@@ -37,7 +37,9 @@ body { background: #f8fafd; color: #202124; font-family: Arial, Helvetica, sans-
 .label-dot { width: 13px; height: 11px; border: 1.5px solid #5f6368; border-radius: 2px; margin: 0 2px; }
 .mock-note { position: absolute; bottom: 20px; left: 26px; font-size: 11px; line-height: 1.7; color: #80868b; }
 .mail-content { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; margin-right: 12px; background: #fff; border-radius: 14px 14px 0 0; overflow: hidden; }
-.mail-list-tools { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 17px; color: #5f6368; }
+.mail-list-tools { min-height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 17px; color: #5f6368; }
+.mail-list-tools > :not(.mail-dock-controls) { flex-shrink: 0; }
+.mail-dock-controls { flex: 1 1 0; min-inline-size: 0; }
 .mail-check { width: 15px; height: 15px; border: 1.5px solid #80868b; border-radius: 2px; display: inline-block; flex-shrink: 0; }
 .refresh-look { font-size: 24px; margin-left: 15px; }
 .mail-count { font-size: 12px; margin-left: auto; color: #5f6368; }

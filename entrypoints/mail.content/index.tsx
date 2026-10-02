@@ -23,7 +23,7 @@ function ExtensionShell({ tabsHost, tabsTarget, controlsHost, controlsTarget }: 
 
   useEffect(() => {
     return location.hostname === 'mail.google.com'
-      ? attachGmailLayout({ tabsHost, controlsHost, onViewRect: setViewRect, onNativeSelect: resetSelection })
+      ? attachGmailLayout({ tabsHost, controlsHost, onNativeSelect: resetSelection })
       : attachOutlookLayout({ tabsHost, onViewRect: setViewRect, onNativeSelect: resetSelection });
   }, [tabsHost, controlsHost, resetSelection]);
 
@@ -43,7 +43,7 @@ function ExtensionShell({ tabsHost, tabsTarget, controlsHost, controlsTarget }: 
   }, [tabsHost, tabsTarget]);
 
   return <>
-    <div ref={setViewTarget} className="dock-inbox-view" hidden={!active || !viewRect} style={viewRect ?? undefined} />
+    {location.hostname !== 'mail.google.com' && <div ref={setViewTarget} className="dock-inbox-view" hidden={!active || !viewRect} style={viewRect ?? undefined} />}
     <Workspace mode={location.hostname === 'mail.google.com' ? 'gmail' : 'outlook'} api={location.hostname === 'mail.google.com' ? gmailApi : undefined} storage={location.hostname === 'mail.google.com' ? undefined : extensionStorage} tabsTarget={tabsTarget} controlsTarget={location.hostname === 'mail.google.com' ? controlsTarget : tabsTarget} viewTarget={viewTarget} onSelectionChange={setActive} resetSelectionToken={resetSelectionToken} />
   </>;
 }

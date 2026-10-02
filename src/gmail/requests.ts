@@ -31,7 +31,7 @@ function retryAfter(value: string | null, now: number): number {
   return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, (Date.parse(value) || now) - now);
 }
 
-/** One shared scheduler for sorting, category previews, account checks, and retries. */
+/** One shared scheduler for categorization, label names, account checks, and retries. */
 export class GmailRequests {
   // Only serializes the current worker's requests; all timing survives worker restarts.
   private tail: Promise<void> = Promise.resolve();
@@ -59,7 +59,7 @@ export class GmailRequests {
         const timing = await this.deps.traffic((traffic) => ({ ...traffic }));
         const until = Math.max(timing.nextAt || 0, timing.retryAt || 0);
         if (until > this.deps.now()) {
-          // Never hold the request queue through a cooldown: a category preview must
+          // Never hold the request queue through a cooldown: a label-name refresh must
           // not prevent the active run from seeing Stop or showing its countdown.
           release();
           if ((timing.retryAt || 0) > this.deps.now()) await this.deps.waiting(timing.retryAt!, runId);

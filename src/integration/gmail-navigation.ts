@@ -1,5 +1,5 @@
 /** Only reuse Gmail's current document when it belongs to Dock's connected account. */
-export function canOpenGmailConversationInPlace(accountEmail: string | undefined): boolean {
+export function canOpenGmailInPlace(accountEmail: string | undefined): boolean {
   const current = new URL(window.location.href);
   if (current.origin !== 'https://mail.google.com' || !accountEmail) return false;
 
@@ -21,4 +21,21 @@ export function canOpenGmailConversationInPlace(accountEmail: string | undefined
   // accounts retain the account-qualified link rather than opening wrong mail.
   const authuser = current.searchParams.get('authuser');
   return !!authuser?.includes('@') && authuser.trim().toLowerCase() === expected;
+}
+
+/** Gmail canonicalizes nested label names into one encoded route segment. */
+export function getGmailLabelFromRoute(hash: string): string | null {
+  const match = /^#label\/([^/?]+)(?:\/p\d+)?(?:\?.*)?$/.exec(hash);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]!.replace(/\+/g, ' ')); }
+  catch { return null; }
+}
+
+export function gmailLabelHash(labelName: string): string {
+  return `#label/${encodeURIComponent(labelName).replace(/%20/g, '+')}`;
+}
+
+export function openGmailRoute(accountEmail: string, hash: string): void {
+  if (canOpenGmailInPlace(accountEmail)) window.location.hash = hash;
+  else window.location.assign(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(accountEmail)}${hash}`);
 }

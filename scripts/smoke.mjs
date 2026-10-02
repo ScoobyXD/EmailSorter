@@ -25,8 +25,8 @@ const watch = (page) => {
 context.on('page', watch);
 context.pages().forEach(watch);
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>Mail integration fixture</title><style>
-body{margin:0;background:#f5f7fb;font:14px Arial;color:#314746}header{height:80px;display:flex;align-items:center;gap:28px;padding:0 32px}header strong{width:160px}form[role=search]{width:520px;height:44px;border-radius:24px;background:#e8eef7;display:flex;align-items:center;padding:0 20px;box-sizing:border-box}form input{border:0;background:none;width:100%;outline:none}main{margin:0 48px 0 216px;background:white;border-radius:14px;min-height:800px}.tools{height:50px;display:flex;align-items:center;padding:0 20px;color:#788781}table{width:100%;border-collapse:collapse;table-layout:fixed}td[role=tab]{height:56px;padding:0 18px;border-bottom:1px solid #e5e9ee;cursor:pointer;box-sizing:border-box;font-size:14px}td[role=tab]:first-child{color:#1a73e8;border-bottom:3px solid #1a73e8}.content{padding:28px;max-width:650px}.content p{line-height:1.7;color:#788781}.content input{padding:12px;border:1px solid #d2dcd6;border-radius:7px}
-</style></head><body><header><strong>Mail UI fixture</strong><form role="search"><input aria-label="Search mail" placeholder="Search mail"></form></header><main role="main"><div class="tools">□　↻　⋮</div><table role="tablist" aria-label="Native categories"><tbody><tr><td role="tab" tabindex="0" aria-selected="true" data-native="primary">Primary</td><td role="tab" tabindex="0" data-native="promotions">Promotions</td><td role="tab" tabindex="0" data-native="social">Social</td><td role="tab" tabindex="0" data-native="updates">Updates</td></tr></tbody></table><div class="content"><h1>A normal email page</h1><p>This is a synthetic page at a supported mail URL. The built Chrome extension adds custom category tabs without a sidebar. No live mailbox is loaded.</p><input aria-label="Host input" placeholder="Host keyboard events stay separate"><p>The host page remains available when Dock is closed.</p></div></main><script>window.hostKeys=0;window.nativeClicks=0;document.addEventListener('keydown',()=>window.hostKeys++);document.querySelectorAll('[data-native]').forEach(tab=>tab.addEventListener('click',()=>window.nativeClicks++));window.originalPrimary=document.querySelector('[data-native=primary]');</script></body></html>`;
+body{margin:0;background:#f5f7fb;font:14px Arial;color:#314746}header{height:80px;display:flex;align-items:center;gap:28px;padding:0 32px}header strong{width:160px}form[role=search]{width:520px;height:44px;border-radius:24px;background:#e8eef7;display:flex;align-items:center;padding:0 20px;box-sizing:border-box}form input{border:0;background:none;width:100%;outline:none}main{margin:0 48px 0 216px;background:white;border-radius:14px;min-height:800px}.tools{min-height:50px;display:flex;align-items:center;gap:8px;padding:0 12px;color:#788781}.native-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.native-actions button,.native-pagination button{border:0;background:none;width:28px;height:32px;color:inherit}.native-pagination{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap;flex-shrink:0}table{width:100%;border-collapse:collapse;table-layout:fixed}td[role=tab]{height:56px;padding:0 18px;border-bottom:1px solid #e5e9ee;cursor:pointer;box-sizing:border-box;font-size:14px}td[role=tab]:first-child{color:#1a73e8;border-bottom:3px solid #1a73e8}.content{padding:28px;max-width:650px}.content p{line-height:1.7;color:#788781}.content input{padding:12px;border:1px solid #d2dcd6;border-radius:7px}
+</style></head><body><header><strong>Mail UI fixture</strong><form role="search"><input aria-label="Search mail" placeholder="Search mail"></form></header><main role="main"><div class="tools" role="toolbar" aria-label="Mail toolbar"><div class="native-actions"><button aria-label="Select messages">□</button><button aria-label="Refresh inbox">↻</button><button aria-label="More mail actions">⋮</button></div><div class="native-pagination"><span>1–50 of 731</span><button aria-label="Previous page">‹</button><button aria-label="Next page">›</button></div></div><table role="tablist" aria-label="Native categories"><tbody><tr><td role="tab" tabindex="0" aria-selected="true" data-native="primary">Primary</td><td role="tab" tabindex="0" data-native="promotions">Promotions</td><td role="tab" tabindex="0" data-native="social">Social</td><td role="tab" tabindex="0" data-native="updates">Updates</td></tr></tbody></table><div class="content"><h1>A normal email page</h1><p>This is a synthetic page at a supported mail URL. The built Chrome extension adds custom category tabs without a sidebar. No live mailbox is loaded.</p><input aria-label="Host input" placeholder="Host keyboard events stay separate"><p>The host page remains available when Dock is closed.</p></div></main><script>window.hostKeys=0;window.nativeClicks=0;document.addEventListener('keydown',()=>window.hostKeys++);document.querySelectorAll('[data-native]').forEach(tab=>tab.addEventListener('click',()=>window.nativeClicks++));window.originalPrimary=document.querySelector('[data-native=primary]');</script></body></html>`;
 await context.route('https://**/*', async route => {
   const request = route.request();
   if (request.isNavigationRequest() && /^(mail\.google\.com|outlook\.office\.com|outlook\.live\.com|outlook\.office365\.com|outlook\.cloud\.microsoft)$/.test(new URL(request.url()).hostname)) {
@@ -67,14 +67,19 @@ try {
   expect(customStyle).toEqual(nativeStyle);
   await expect(page.getByRole('slider', { name: 'Days back' })).toHaveValue('30');
   await expect(page.getByRole('button', { name: 'Categorize emails', exact: true })).toBeDisabled();
+  await expect(page.locator('dock-inbox-controls')).toHaveAttribute('data-dock-toolbar-placement', 'native');
+  await expect(page.getByText(/^Only messages currently in Inbox/)).toHaveCount(0);
+  await expect(page.getByText(/^Categorization account:/)).toHaveCount(0);
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run)).toBeUndefined();
   await assertNoHorizontalScroll(page);
   await page.screenshot({ path: path.join(artifacts, 'gmail-extension.png') });
   await page.getByRole('tab', { name: 'Shipping', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Connect Gmail to view messages' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Connect Dock', exact: true })).toBeVisible();
+  await expect(page.locator('.dock-inbox-view')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Open sample message:/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('[data-native=promotions]').click();
-  await expect(page.locator('.dock-inbox-view')).toBeHidden();
+  await expect(page.locator('.content')).toBeVisible();
   expect(await page.evaluate(() => window.nativeClicks)).toBe(1);
   expect(await page.evaluate(() => window.originalPrimary === document.querySelector('[data-native=primary]'))).toBe(true);
 
@@ -95,7 +100,7 @@ try {
   expect(await page.evaluate(() => window.hostKeys)).toBe(0);
   await page.reload();
   await expect(page.getByRole('tab', { name: 'Inspection', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Inspection', exact: true }).click();
+  await page.getByRole('tab', { name: 'Inspection', exact: true }).focus();
   await page.getByRole('button', { name: 'Delete Inspection', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Delete Inspection?' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'No', exact: true })).toBeFocused();
@@ -120,7 +125,7 @@ try {
   expect(JSON.stringify(exported)).not.toMatch(/helperToken|labelId|accountEmail/);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Projects', exact: true })).toBeVisible();
-  await expect(page.getByText('Add descriptions to Projects using Edit before categorizing.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Add category descriptions to categorize.', { exact: true })).toHaveAttribute('title', 'Add descriptions to Projects using Edit.');
   await page.getByRole('tab', { name: 'Projects', exact: true }).press('F2');
   await fillCategory(page, 'Projects', 'Project decisions, status reports, milestones and planning discussions.');
 
@@ -142,8 +147,9 @@ try {
     await chrome.storage.local.set({ 'dock-gmail-v2': state });
   });
   await page.reload();
-  await expect(page.getByText('Categorization account: fixture@example.test', { exact: true })).toBeVisible();
-  await expect(page.getByText(/Stopped\. 1 of 2 processed/)).toBeVisible();
+  await expect(page.getByText(/^Categorization account:/)).toHaveCount(0);
+  await expect(page.getByText('1 labeled · 1/2 processed · Stopped', { exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Resume unfinished', exact: true })).toBeChecked();
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run.status)).toBe('paused');
   await expect(page.getByRole('button', { name: 'Categorize emails', exact: true })).toBeDisabled();
   await worker.evaluate(async () => { const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2']; delete state.run; delete state.accountEmail; await chrome.storage.local.set({ 'dock-gmail-v2': state }); });
@@ -160,7 +166,9 @@ try {
   await expect(page.locator('dock-inbox-tabs')).toHaveCount(1);
   await expect(page.getByRole('tab', { name: 'Shipping', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Shipping', exact: true }).click();
-  await expect(page.locator('.dock-inbox-view')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Connect Dock', exact: true })).toBeVisible();
+  await expect(page.locator('.dock-inbox-view')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.evaluate(() => { location.hash = '#all'; });
   await expect(page.locator('dock-inbox-tabs')).toHaveCount(0);
   await expect(page.locator('.dock-inbox-view')).toBeHidden();
@@ -169,6 +177,33 @@ try {
   await page.evaluate(() => { location.hash = '#inbox'; });
   await expect(page.locator('dock-inbox-tabs')).toHaveCount(1);
   await expect(page.locator('.native-gmail-label')).toHaveCount(1);
+  await page.evaluate(() => {
+    window.savedNativeTabs = document.querySelector('[aria-label="Native categories"]');
+    location.hash = '#label/Dock%2FShipping';
+    window.savedNativeTabs.remove();
+  });
+  await expect(page.getByRole('tab', { name: 'Shipping', exact: true })).toBeVisible();
+  await expect(page.locator('dock-inbox-tabs')).toHaveCount(1);
+  await expect(page.locator('dock-inbox-controls')).toHaveCount(1);
+  await expect(page.locator('.content')).toBeVisible();
+  await expect(page.locator('.dock-inbox-view')).toHaveCount(0);
+  await page.evaluate(() => { location.hash = '#label/Dock%2FShipping/p2'; });
+  await expect(page.getByRole('tab', { name: 'Shipping', exact: true })).toBeVisible();
+  await page.evaluate(() => { location.hash = '#label/Dock%2FShipping/thread-fixture'; });
+  await expect(page.locator('dock-inbox-tabs, dock-inbox-controls')).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Shipping', exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    document.querySelector('.content').before(window.savedNativeTabs);
+    location.hash = '#inbox';
+  });
+  await expect(page.locator('dock-inbox-tabs')).toHaveCount(1);
+  const freshLabel = await context.newPage();
+  await freshLabel.goto('https://mail.google.com/mail/u/0/#label/Dock%2FShipping/p2');
+  await expect(freshLabel.getByRole('tab', { name: 'Shipping', exact: true })).toBeVisible();
+  await expect(freshLabel.locator('.content')).toBeVisible();
+  await expect(freshLabel.locator('.dock-inbox-view')).toHaveCount(0);
+  await freshLabel.close();
   await page.setViewportSize({ width: 850, height: 900 });
   await expect(page.getByRole('button', { name: 'Add category', exact: true })).toBeVisible();
   await assertNoHorizontalScroll(page);
@@ -210,7 +245,7 @@ try {
   await preview.screenshot({ path: path.join(artifacts, 'preview-mobile.png'), fullPage: true });
   expect(errors).toEqual([]);
   expect(unexpectedRequests).toEqual([]);
-  console.log(JSON.stringify({ result: 'PASS', checks: ['Gmail typography, icons, manual-only controls, default 30-day scope, no sidebar', 'native tab DOM and interactions preserved; SPA replacement and routes', 'compact title/description create/edit, F2, duplicate validation, cancel, stable saved categories', 'delete Yes/No confirmation and persistence', 'legacy JSON migration and credential-free definition export', 'interrupted run pauses on reload with saved progress and connected account visible', 'native colored-label fixture preserved without duplicate chips on Inbox/All Mail routes (not a live Gmail validation)', 'four Outlook hosts remain sample-only', 'standalone preview controls and narrow layout', 'no page errors or unexpected network requests'] }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', checks: ['Gmail typography, icons, manual-only controls, default 30-day scope, no sidebar', 'native tab DOM and interactions preserved; SPA replacement and routes', 'native label overview, pagination, fresh page and Back preserve controls without a custom message list', 'conversation routes hide controls; disconnected category click opens Connection', 'compact title/description create/edit, F2, duplicate validation, cancel, stable saved categories', 'delete Yes/No confirmation and persistence', 'legacy JSON migration and credential-free definition export', 'interrupted run pauses on reload with saved progress and resume option in the toolbar', 'native colored-label fixture preserved without duplicate chips on Inbox/All Mail routes (not a live Gmail validation)', 'four Outlook hosts remain sample-only', 'standalone preview controls and narrow layout', 'no page errors or unexpected network requests'] }, null, 2));
 } catch (error) {
   console.error(JSON.stringify({ pageErrors: errors, unexpectedRequests }, null, 2));
   throw error;

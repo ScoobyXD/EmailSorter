@@ -1,4 +1,4 @@
-# Dock 0.4.3 — manual Gmail categories
+# Dock 0.4.6 — manual Gmail categories
 
 Dock adds category tabs inside Gmail. Press **Categorize emails** to classify only messages currently in Inbox received within the selected date window (30 days by default). There is no schedule, new-mail watcher, overnight worker, or urgency ranking. Outlook and the standalone preview remain sample-only.
 
@@ -10,11 +10,16 @@ The old Codex workspace paths forward to this project for compatibility with the
 
 ## Update the installed Dock
 
-The existing `outputs\dock-extension` folder now contains **0.4.3**. In `chrome://extensions`, click the reload arrow on **Dock — Gmail Categories**, then refresh Gmail. Keep the same installed extension (`ccklhlnpillicildcgbdfibggkkhkdib`); removing it would clear its saved categories and checkpoints.
-
-This patch opens category emails within the current Gmail page instead of reloading Gmail. Normal clicks and Enter use Gmail's conversation routing when the visible Google account (or email-valued `authuser`) matches Dock's connected account. Ctrl/Cmd-click and other modified clicks keep normal browser link behavior. If the current account differs or cannot be identified, the account-qualified link still selects the connected account. Browser Back returns to the previous Gmail route.
-
-The 0.4.2 rate-limit recovery remains included. Reloading does not start categorization; leave **Resume unfinished or failed messages** checked and press **Categorize emails** to continue a saved run.
+1. The existing `outputs\dock-extension` folder contains **0.4.6**. Reload **Dock — Gmail Categories** in `chrome://extensions`, then refresh Gmail.
+2. Keep the same installed extension (`ccklhlnpillicildcgbdfibggkkhkdib`) to preserve saved categories and checkpoints.
+3. Categorize emails, the days slider, progress, resume, and errors share Gmail's top action toolbar, above the category tabs.
+4. The toolbar omits the scope and account text. Connection settings still show the connected account.
+5. Gmail labels use category titles only. The next start or resume renames existing Dock labels and preserves their message memberships.
+6. A conflicting Gmail label name stops the run. Rename that label or the Dock category, then retry.
+7. Reloading does not start categorization. Keep **Resume unfinished** checked and press **Categorize emails** to continue the saved run.
+8. Gmail layouts with a narrow native action group use its shared toolbar row. Controls sit between the three-dot menu and pagination.
+9. Label renaming covers current saved categories and Uncategorized. Untracked duplicates and removed categories require separate cleanup.
+10. Dock controls stay in Gmail's sticky toolbar while scrolling. Buttons receive clicks above Gmail's toolbar decoration.
 
 ## First installation
 
@@ -66,19 +71,25 @@ This client uses `chrome.identity.getAuthToken` with the **Chrome Extension** OA
 
 ## Categories and email behavior
 
-- **+** opens a compact title/description/icon editor. **Edit** and **×** appear on hover or keyboard focus; F2 edits a focused category. Category IDs and colors survive renames and browser restarts.
-- Descriptions are supplied to Jev alongside each message's sender, subject, and decoded text body. Email text is untrusted classification data. The current categories become Choice options; a no-match outcome becomes **Uncategorized**. No urgency question is sent.
-- Each email gets one Dock category label, or Dock's Uncategorized label. Dock removes only its other category memberships during reassignment. Inbox, unread state, and unrelated labels remain intact.
-- Labels use Gmail-supported colors and `messageListVisibility: show`, so Gmail renders native colored labels in Inbox and All Mail. There are no extra decorative chips. Refresh Gmail if its own list has not refreshed after a run. A short ownership suffix in label names distinguishes Dock labels from unrelated labels with similar titles.
-- A category tab shows real labeled messages, including labeled messages outside the latest run's date window. Rows open the original Gmail conversation in place when the tab's account matches the connected account; account-qualified links remain available for other accounts and new tabs. **Load more messages** pages through results; sort applies to loaded messages.
-- Native Primary, Promotions, Social, and Updates controls retain their existing elements and interactions. Tabs wrap when needed. Gmail's DOM is not a supported public API; unfamiliar layouts use a separate row within the inbox.
-- **× → Yes** removes that category and its app-owned Gmail label/memberships. It preserves every email and unrelated label. **No** cancels. Removing a category does not automatically move messages into Uncategorized; a future manual run can classify them again.
+1. **+** opens the category editor. **Edit**, **×**, and F2 edit or remove categories. IDs and colors survive renames and restarts.
+2. Jev receives category descriptions and each email's sender, subject, and decoded body. Email text is untrusted data. No match becomes **Uncategorized**.
+3. Each email gets one Dock label. Reassignment removes only other Dock labels. Inbox, unread state, and unrelated labels remain intact.
+4. Gmail displays the category title as a colored label. Dock tracks ownership with saved label IDs. Refresh Gmail after a run if label changes are not visible.
+5. Category tabs open Gmail's native label views. Matching accounts keep the current Gmail page. Other accounts use account-qualified links.
+6. Gmail handles message display, conversation grouping, pagination, selection, and email actions. Dock does not fetch email details when a category opens.
+7. Native Gmail controls retain their behavior. Tabs wrap when needed. Unrecognized toolbar layouts place controls in a separate row above the categories.
+8. **× → Yes** removes the category and its Gmail label. Emails and unrelated labels remain. A future manual run can categorize those emails again.
+9. Label names refresh once when Dock loads and after connection or import. Saved IDs identify legacy labels with hashed names.
+10. The Inbox shortcut, Back, and Forward use Gmail navigation. Dock tabs remain available on label lists.
 
 ## Progress, interruption, and limits
 
 Runs page through the selected Inbox window and process at most three messages concurrently. The date boundary is fixed at the run's start; messages are checked again before classification. Full email bodies are never saved in extension storage or helper logs.
 
-Gmail calls share a persisted quota schedule across sorting, account verification, and category browsing. Ordinary sorting uses 20 units to read a message and 5 to apply its label. Each separately stored text-body fetch adds 20 units; a full 30-message category preview uses about 606 units. The pacing target allows roughly 192 simple sorts/minute before these extra calls and classifier/network latency. See [Google's quota table](https://developers.google.com/workspace/gmail/api/reference/quota). Rate-limit cooldowns and pacing timestamps survive worker restarts, but restarting still requires an explicit resume.
+1. Gmail API calls share a saved quota schedule for categorization, account checks, and label-name refreshes.
+2. Reading a message uses 20 quota units. Applying its label uses 5 units. Each separately stored text-body fetch uses 20 units.
+3. Category navigation uses Gmail directly and makes no Dock API request.
+4. Rate-limit cooldowns survive worker restarts. Categorization resumes only after an explicit user action.
 
 Progress and classification decisions are checkpointed before label changes. Gmail label mutations are idempotent, and lost label-creation replies are reconciled before retrying. The exact Jev choice, probability distribution, confidence, model, and usage are retained for pending work and a bounded recent history. An interrupted browser/service worker pauses; it never restarts classification on its own.
 

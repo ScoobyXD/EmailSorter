@@ -93,7 +93,7 @@ async function zip(root, names, filename) {
 }
 await zip(extension, await files(extension), 'Dock-extension.zip');
 await zip(helper, await files(helper), 'Dock-helper.zip');
-const sourceRoots = ['entrypoints', 'src', 'public', 'scripts', 'standalone', 'helper'];
+const sourceRoots = ['entrypoints', 'src', 'public', 'scripts', 'standalone', 'helper', 'docs'];
 const sources = ['package.json', 'package-lock.json', 'wxt.config.ts', 'tsconfig.json', 'extension-identity.json', 'README.md', 'VERIFICATION.md', '.gitignore'];
 for (const root of sourceRoots) sources.push(...(await files(path.join(project, root))).map(p => path.join(root, p)));
 await zip(project, sources, 'Dock-source.zip');

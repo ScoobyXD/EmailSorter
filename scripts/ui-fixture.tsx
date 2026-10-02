@@ -2,18 +2,18 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Workspace, type DockApi } from '../src/ui/Workspace';
-import type { DockState, GmailMessageSummary } from '../src/gmail/protocol';
+import type { DockState } from '../src/gmail/protocol';
 
-const state: DockState = { version: 2, categories: [{ id: 'home-repair', title: 'Home repair', description: 'Repairs, maintenance, plumbing and contractor appointments at home.', icon: 'tag', color: '#c9daf8' }], daysBack: 30, accountEmail: 'ui-fixture@example.test', helperReady: true, oauthConfigured: true };
-const fixture = { state, starts: 0, resumes: 0, stops: 0, listCalls: 0, failList: false };
+const scenario = new URLSearchParams(location.search).get('scenario');
+const state: DockState = { version: 2, categories: [{ id: 'home-repair', title: 'Home repair', description: 'Repairs, maintenance, plumbing and contractor appointments at home.', icon: 'tag', color: '#c9daf8', labelId: 'Label_fixture' }], daysBack: 30, accountEmail: scenario === 'disconnected' ? undefined : 'ui-fixture@example.test', helperReady: true, oauthConfigured: true };
+const fixture = { state, starts: 0, resumes: 0, stops: 0, commands: [] as string[], documentId: crypto.randomUUID() };
 Object.assign(window, { fixture });
-const first: GmailMessageSummary = { id: 'message-a', threadId: 'thread-a', sender: 'Sample Plumber', subject: 'Sink repair appointment', snippet: 'Thursday at 10 works for the fixture.', receivedAt: 1780000000000, unread: true, gmailUrl: 'https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test#all/thread-a' };
-const second: GmailMessageSummary = { ...first, id: 'message-b', threadId: 'thread-b', subject: 'Fixture receipt', receivedAt: 1770000000000, gmailUrl: 'https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test#all/thread-b' };
 const api: DockApi = async request => {
-  if (request.command === 'listMessages') {
-    fixture.listCalls++;
-    if (fixture.failList) return { ok: false, error: 'Fixture Gmail access expired. Reconnect Gmail.' };
-    return { ok: true, messages: request.pageToken ? [first, second] : [first], nextPageToken: request.pageToken ? undefined : 'page-two' };
+  fixture.commands.push(request.command);
+  if (request.command === 'refreshLabels' && state.accountEmail) {
+    if (scenario === 'refresh-fails') return { ok: false, error: 'Fixture Gmail access expired. Reconnect Gmail.' };
+    if (scenario !== 'missing-label') state.categories[0]!.labelName = 'Dock/Household + repair [home-repair]';
+    if (scenario !== 'missing-uncategorized') state.uncategorizedLabelName = 'Dock/Uncategorized';
   }
   if (request.command === 'connect') return { ok: false, error: 'Fixture authorization denied. Retry with the listed Google test user.' };
   if (request.command === 'start') {
@@ -27,8 +27,9 @@ const api: DockApi = async request => {
 };
 function Fixture() {
   const [tabs, setTabs] = useState<HTMLDivElement | null>(null);
+  const [controls, setControls] = useState<HTMLDivElement | null>(null);
   const [view, setView] = useState<HTMLDivElement | null>(null);
   const [active, setActive] = useState(false);
-  return <main style={{ maxWidth: 1000, margin: '30px auto', fontFamily: 'Arial' }}><h1>Dock component test · synthetic data only</h1><div ref={setTabs} /><div ref={setView} hidden={!active} style={{ height: 420 }} /><Workspace api={api} mode="gmail" tabsTarget={tabs} viewTarget={view} onSelectionChange={setActive} /></main>;
+  return <main style={{ maxWidth: 1600, margin: '30px auto', fontFamily: 'Arial' }}><h1>Dock component test · synthetic data only</h1><div role="toolbar" aria-label="Mail toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 48 }}><div style={{ display: 'flex', gap: 8, flexShrink: 0 }}><button type="button" aria-label="Select messages">□</button><button type="button" aria-label="Refresh inbox">↻</button><button type="button" aria-label="More mail actions">⋮</button></div><div ref={setControls} style={{ flex: '1 1 auto', minWidth: 0 }} /><span style={{ flexShrink: 0 }}>1–50 of 731</span></div><div ref={setTabs} /><div id="fixture-native-mail">Gmail owns this message list.</div><div id="fixture-custom-view" ref={setView} hidden={!active} style={{ height: 420 }} /><Workspace api={api} mode="gmail" tabsTarget={tabs} controlsTarget={controls} viewTarget={view} onSelectionChange={setActive} /></main>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

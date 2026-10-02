@@ -6,6 +6,8 @@ export interface DockCategory {
   /** Gmail-supported background hex color. Stable across renames and restarts. */
   color: string;
   labelId?: string;
+  /** Current Gmail label name, resolved by its immutable ID. */
+  labelName?: string;
 }
 export interface RunProgress {
   id: string;
@@ -27,32 +29,22 @@ export interface DockState {
   categories: DockCategory[];
   daysBack: number;
   accountEmail?: string;
+  uncategorizedLabelName?: string;
   helperReady: boolean;
   oauthConfigured: boolean;
   run?: RunProgress;
   error?: string;
 }
-export interface GmailMessageSummary {
-  id: string;
-  threadId: string;
-  sender: string;
-  subject: string;
-  snippet: string;
-  receivedAt: number;
-  unread: boolean;
-  gmailUrl: string;
-}
 export type DockRequest = { type: 'dock:api' } & (
-  | { command: 'state' | 'connect' | 'disconnect' | 'stop' | 'resume' }
+  | { command: 'state' | 'connect' | 'disconnect' | 'stop' | 'resume' | 'refreshLabels' }
   | { command: 'setDaysBack' | 'start'; daysBack: number }
   | { command: 'pairHelper'; token: string }
   | { command: 'importCategories'; json: string }
   | { command: 'saveCategory'; category: { id?: string; title: string; description: string; icon?: string } }
   | { command: 'deleteCategory'; categoryId: string }
-  | { command: 'listMessages'; categoryId: string; pageToken?: string }
 );
 export type DockResponse =
-  | { ok: true; state?: DockState; messages?: GmailMessageSummary[]; nextPageToken?: string }
+  | { ok: true; state?: DockState }
   | { ok: false; error: string };
 export const UNCATEGORIZED = 'uncategorized';
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';

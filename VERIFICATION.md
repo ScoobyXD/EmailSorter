@@ -1,4 +1,39 @@
-# Dock 0.4.3 verification
+# Dock 0.4.6 verification
+
+## 0.4.6 toolbar scrolling and clicks — October 2, 2026
+
+1. Live Gmail reproduced both faults: scrolling moved Dock outside the sticky toolbar, and Gmail's toolbar decoration intercepted pointer clicks.
+2. Toolbar detection now uses its DOM relationship to the category tabs. The controls host uses the same stacking level as native actions.
+3. TypeScript, the production build, and packaging pass.
+4. All 43 browser layout scenarios pass with zero issues, page errors, or unexpected requests.
+5. Browser checks cover clicks before and after scrolling, pages that start scrolled, saved failures, narrow windows, and native toolbar restoration.
+6. Closing Connection returns focus to its toolbar button without scrolling. The focused fixture preserves its 800px scroll position.
+7. Live Gmail verification confirms controls remain in the sticky toolbar and Connection opens by pointer click before and after scrolling.
+8. Verification did not start live categorization or change Gmail labels. No unit tests were added or run.
+9. The browser report is `test-results/clipping/0.4.6-1790979395514/report.json`.
+
+## 0.4.6 native category navigation — October 2, 2026
+
+1. TypeScript and the production build pass.
+2. The UI and full-extension browser smoke checks pass with synthetic data and no unexpected network requests or page errors.
+3. All 43 browser layout scenarios pass.
+4. Category clicks open native Gmail label routes without Dock API calls or a custom message overlay.
+5. Browser checks cover account routing, reserved label characters, missing labels, renames, keyboard use, pagination, Back, and direct label pages.
+6. Native Gmail label links were inspected read-only. An existing Bills label opened as Gmail's own list.
+7. Live native category navigation with the updated extension was not verified. Live toolbar activation is verified in the section above.
+8. No unit tests were created or run. No live emails were categorized, sent, archived, or deleted.
+9. Business rules are in [docs/tests/gmail-navigation.md](docs/tests/gmail-navigation.md).
+
+## 0.4.4 toolbar and label names — October 2, 2026
+
+1. TypeScript and the production build pass.
+2. All three browser smoke scripts pass. The layout script checks 32 scenarios with no page errors or unexpected requests.
+3. Browser checks cover toolbar placement, pagination, narrow windows, routes, replaced toolbars, missing toolbars, and removed hosts.
+4. Progress shows applied labels and processed emails. Scope and account lines are absent. Resume and errors remain in the toolbar.
+5. Code review confirms label renames preserve saved IDs and memberships. Conflicting names cannot transfer ownership of unrelated Gmail labels.
+6. Account switches preserve label IDs by mailbox and category ID.
+7. Live Gmail label changes were not executed. The next explicit start or resume renames existing Dock labels before processing messages.
+8. No unit tests were added or run.
 
 Unit test suites were removed on October 2, 2026. Earlier unit test results below are historical records. Current checks use TypeScript, production builds, and browser smoke scripts.
 

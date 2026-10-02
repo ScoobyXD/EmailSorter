@@ -1,19 +1,21 @@
 /**
  * Gmail page-chrome integration. Only layout, roles and geometry are inspected:
  * this module never reads message text, sender data, search values or bodies.
- * Gmail does not publish a stable DOM API; unrecognized layouts use an inbox-only
+ * Gmail does not publish a stable DOM API; unrecognized layouts use an overview
  * fallback. Native tabs are kept in place so their listeners and state survive.
  */
+import { getGmailLabelFromRoute } from './gmail-navigation';
+
 export interface GmailViewRect { top: number; left: number; width: number; height: number }
 
 export interface GmailLayoutOptions {
   /** Detached extension-owned element, optionally containing a shadow root. */
   tabsHost: HTMLElement;
-  /** Controls live in normal flow outside Gmail's fixed-height category strip. */
+  /** Controls share Gmail's action toolbar, outside the category strip. */
   controlsHost?: HTMLElement;
   /** Fixed-position bounds for an extension-owned view below the complete tab row. */
   onViewRect?: (rectangle: GmailViewRect | null) => void;
-  /** A native category click or a Gmail route change should close the custom view. */
+  /** Notifies the caller of native category clicks and Gmail route changes. */
   onNativeSelect?: () => void;
 }
 
@@ -23,6 +25,13 @@ interface NativeTabs {
   items: HTMLElement[];
   tabs: HTMLElement[];
   table: HTMLTableElement | null;
+}
+
+interface NativeToolbar {
+  row: HTMLElement;
+  items: HTMLElement[];
+  before: HTMLElement | null;
+  wrappers: HTMLElement[];
 }
 
 interface StyleChange {
@@ -110,6 +119,69 @@ function findNativeTabs(main: HTMLElement): NativeTabs | null {
   return null;
 }
 
+function findNativeToolbar(main: HTMLElement, native: NativeTabs | null): NativeToolbar | null {
+  const mainBox = main.getBoundingClientRect();
+  const tabTop = native?.list.getBoundingClientRect().top ?? mainBox.top + 180;
+  const candidates = [...new Set([...document.querySelectorAll<HTMLElement>('[gh="mtb"], [role="toolbar"]')]
+    .map((element) => {
+      // Current Gmail marks only the compact action group as mtb. Its parent
+      // inside the tm toolbar shares the row with pagination.
+      const toolbar = element.matches('[gh="mtb"]') ? element.closest<HTMLElement>('[gh="tm"]') : null;
+      const parent = element.parentElement;
+      return toolbar && parent && toolbar.contains(parent) ? parent : element;
+    }))]
+    .filter((element) => {
+      if (!isVisible(element) || element.closest(`${OWNED_SELECTOR}, [role="dialog"], [role="complementary"]`) ||
+        element.querySelector('[role="tablist"], [role="main"]')) return false;
+      const box = element.getBoundingClientRect();
+      // Sticky actions stay in place while the tabs and main scroll past them.
+      // Use their DOM relationship inside Gmail instead of viewport order.
+      const shell = element.closest<HTMLElement>('[gh="tm"]');
+      const beforeTabs = native && Boolean(element.compareDocumentPosition(native.list) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const anchoredInMain = main.contains(element) && (native ? beforeTabs : Boolean(shell && main.contains(shell)));
+      const aboveTabs = box.top >= mainBox.top - 80 && box.bottom <= tabTop + 2;
+      return box.width >= Math.min(500, mainBox.width * 0.65) && box.left >= mainBox.left - 24 &&
+        box.right <= mainBox.right + 24 && (anchoredInMain || aboveTabs);
+    })
+    .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+  for (const toolbar of candidates) {
+    let row = toolbar;
+    const wrappers: HTMLElement[] = [];
+    const visibleChildren = (element: HTMLElement) => [...element.children].filter((child): child is HTMLElement =>
+      child instanceof HTMLElement && !child.matches(OWNED_SELECTOR) && isVisible(child));
+    // Gmail can wrap the leading actions and pagination in one full-width row.
+    // Keep those native nodes and their listeners, and use that row as the host.
+    for (let children = visibleChildren(row); children.length === 1; children = visibleChildren(row)) {
+      const child = children[0]!;
+      if (child.matches('button, [role="button"], [role="checkbox"], input, select') ||
+        child.getBoundingClientRect().width < row.getBoundingClientRect().width * 0.8) break;
+      wrappers.push(row);
+      row = child;
+    }
+    const items = visibleChildren(row);
+    const actions = row.querySelectorAll('button, [role="button"], [role="checkbox"], input[type="checkbox"]');
+    if (!items.length || actions.length < 2) continue;
+    // An unknown mixed wrapper can clip a taller controls row. Use the normal
+    // flow fallback in that case, without changing any message-list container.
+    let branch = toolbar;
+    let safe = true;
+    for (let parent = toolbar.parentElement; parent && parent !== main && !parent.contains(main); parent = parent.parentElement) {
+      const others = visibleChildren(parent).filter((child) => child !== branch);
+      if (!others.length) wrappers.push(parent);
+      else {
+        const style = getComputedStyle(parent);
+        if ([style.overflowX, style.overflowY].some((value) => value === 'hidden' || value === 'clip')) safe = false;
+      }
+      branch = parent;
+    }
+    if (!safe) continue;
+    const middle = row.getBoundingClientRect().left + row.getBoundingClientRect().width / 2;
+    const before = items.find((item, index) => index > 0 && item.getBoundingClientRect().left >= middle) ?? null;
+    return { row, items, before, wrappers };
+  }
+  return null;
+}
+
 function inheritTabTypography(host: HTMLElement, native: NativeTabs | null) {
   const inactive = native?.tabs.find((tab) => tab.getAttribute('aria-selected') === 'false');
   const tab = inactive ?? native?.tabs[0];
@@ -143,6 +215,8 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
   let nativeTabs: HTMLElement[] = [];
   let activeMode: 'native' | 'fallback' | null = null;
   let activeBoundary: HTMLElement | null = null;
+  let activeToolbar: HTMLElement | null = null;
+  let activeToolbarItems: HTMLElement[] = [];
   let lastRectangle: GmailViewRect | null | undefined;
   let lastRoute = window.location.hash;
   const changes: StyleChange[] = [];
@@ -151,10 +225,12 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
   const oldMarker = tabsHost.getAttribute(OWNED);
   const controlsStyle = controlsHost?.getAttribute('style') ?? null;
   const controlsMarker = controlsHost?.getAttribute(OWNED) ?? null;
+  const controlsPlacement = controlsHost?.getAttribute('data-dock-toolbar-placement') ?? null;
   tabsHost.setAttribute(OWNED, 'tabs');
   if (controlsHost) {
     controlsHost.setAttribute(OWNED, 'controls');
-    Object.assign(controlsHost.style, { display: 'block', width: '100%', minWidth: '0', boxSizing: 'border-box', flex: '0 0 auto' });
+    // Match native action stacking above Gmail's toolbar background pseudo-element.
+    Object.assign(controlsHost.style, { display: 'block', position: 'relative', zIndex: '0', minWidth: '0', minInlineSize: '0', boxSizing: 'border-box', flex: '1 1 0px' });
   }
 
   const patch = (element: HTMLElement, property: string, value: string) => {
@@ -193,6 +269,8 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
     nativeTabs = [];
     activeMode = null;
     activeBoundary = null;
+    activeToolbar = null;
+    activeToolbarItems = [];
   };
 
   const observer = new MutationObserver((records) => {
@@ -223,6 +301,11 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
     const changed = activeRow !== parent || activeMode !== mode || !slot?.isConnected || tabsHost.parentElement !== slot ||
       (native && (native.items.length !== activeItems.length || native.items.some((item, index) => item !== activeItems[index])));
     if (changed) {
+      // A repaired fallback must not use the old Dock slot as its anchor.
+      // resetTabs removes that slot before the new one is inserted.
+      while (after?.matches(OWNED_SELECTOR)) {
+        after = after.previousElementSibling instanceof HTMLElement ? after.previousElementSibling : null;
+      }
       resetTabs();
       slot = document.createElement(native?.table ? 'td' : 'div');
       slot.setAttribute(OWNED, mode);
@@ -254,9 +337,12 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
       lastRoute = route;
       onNativeSelect?.();
     }
-    const overview = INBOX_ROUTE.test(route) || CATEGORY_ROUTE.test(route);
+    const overview = INBOX_ROUTE.test(route) || CATEGORY_ROUTE.test(route) || getGmailLabelFromRoute(route) !== null;
     const native = overview && main ? findNativeTabs(main) : null;
     const boundary = native && main ? tabBoundary(native, main) : null;
+    const toolbar = overview && main && controlsHost ? findNativeToolbar(main, native) : null;
+    if (activeToolbar && (activeToolbar !== toolbar?.row || activeToolbarItems.length !== toolbar.items.length ||
+      toolbar.items.some((item, index) => item !== activeToolbarItems[index]))) resetTabs();
     let hasTabs = false;
     inheritTabTypography(tabsHost, native);
 
@@ -316,24 +402,65 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
         patch(wrapper, 'max-height', 'none');
         patch(wrapper, 'flex-shrink', '0');
       }
-      if (controlsHost && boundary.branch.nextElementSibling !== controlsHost) boundary.branch.after(controlsHost);
       nativeTabs = native.tabs;
       hasTabs = true;
     } else if (native && main) {
       const branch = directBranch(native.list, main);
       mount(main, branch?.previousElementSibling instanceof HTMLElement ? branch.previousElementSibling : null, 'fallback');
-      if (slot && controlsHost && slot.nextElementSibling !== controlsHost) slot.after(controlsHost);
       nativeTabs = native.tabs;
       hasTabs = true;
-    } else if (main && INBOX_ROUTE.test(route)) {
-      mount(main, null, 'fallback');
+    } else if (main && overview) {
+      // Label lists do not have Gmail's category strip. Reuse the normal-flow
+      // slot, leaving Gmail's message list and action controls in place.
+      const toolbarBranch = toolbar ? directBranch(toolbar.row, main) : null;
+      mount(main, toolbarBranch, 'fallback');
       if (slot) Object.assign(slot.style, { width: '100%', maxWidth: '100%' });
-      if (slot && controlsHost && slot.nextElementSibling !== controlsHost) slot.after(controlsHost);
       hasTabs = true;
     }
     if (!hasTabs) resetTabs();
 
-    const targets = [main, native?.row, slot, tabsHost, controlsHost, ...(boundary?.wrappers ?? [])].filter((element): element is HTMLElement => Boolean(element?.isConnected));
+    if (hasTabs && controlsHost) {
+      if (toolbar) {
+        const attachingToolbar = activeToolbar !== toolbar.row;
+        if (attachingToolbar) {
+          // Capture the native height before our controls can make it taller.
+          patch(toolbar.row, 'min-height', `${toolbar.row.getBoundingClientRect().height}px`);
+        }
+        activeToolbar = toolbar.row;
+        activeToolbarItems = toolbar.items;
+        patch(toolbar.row, 'display', 'flex');
+        patch(toolbar.row, 'align-items', 'center');
+        patch(toolbar.row, 'flex-wrap', 'nowrap');
+        patch(toolbar.row, 'gap', '8px');
+        patch(toolbar.row, 'box-sizing', 'border-box');
+        patch(toolbar.row, 'height', 'auto');
+        patch(toolbar.row, 'max-height', 'none');
+        patch(toolbar.row, 'overflow', 'visible');
+        for (const item of toolbar.items) {
+          patch(item, 'flex-shrink', '0');
+          patch(item, 'float', 'none');
+        }
+        for (const wrapper of toolbar.wrappers) {
+          if (attachingToolbar) patch(wrapper, 'min-height', `${wrapper.getBoundingClientRect().height}px`);
+          patch(wrapper, 'height', 'auto');
+          patch(wrapper, 'max-height', 'none');
+          patch(wrapper, 'overflow', 'visible');
+          patch(wrapper, 'flex-shrink', '0');
+        }
+        Object.assign(controlsHost.style, { width: 'auto', maxWidth: '100%', marginInline: '4px', flex: '1 1 0px' });
+        controlsHost.setAttribute('data-dock-toolbar-placement', 'native');
+        if (controlsHost.parentElement !== toolbar.row || controlsHost.nextElementSibling !== toolbar.before) {
+          toolbar.row.insertBefore(controlsHost, toolbar.before);
+        }
+      } else {
+        Object.assign(controlsHost.style, { width: '100%', maxWidth: '100%', marginInline: '0', flex: '0 0 auto' });
+        controlsHost.setAttribute('data-dock-toolbar-placement', 'fallback');
+        const anchor = activeMode === 'native' ? boundary?.branch : slot;
+        if (anchor && anchor.previousElementSibling !== controlsHost) anchor.before(controlsHost);
+      }
+    }
+
+    const targets = [main, native?.row, slot, tabsHost, controlsHost, toolbar?.row, ...(toolbar?.wrappers ?? []), ...(boundary?.wrappers ?? [])].filter((element): element is HTMLElement => Boolean(element?.isConnected));
     if (targets.length !== resizeTargets.length || targets.some((element, index) => element !== resizeTargets[index])) {
       resizeObserver?.disconnect();
       targets.forEach((element) => resizeObserver?.observe(element));
@@ -402,6 +529,8 @@ export function attachGmailLayout({ tabsHost, controlsHost, onViewRect, onNative
       else controlsHost.setAttribute('style', controlsStyle);
       if (controlsMarker === null) controlsHost.removeAttribute(OWNED);
       else controlsHost.setAttribute(OWNED, controlsMarker);
+      if (controlsPlacement === null) controlsHost.removeAttribute('data-dock-toolbar-placement');
+      else controlsHost.setAttribute('data-dock-toolbar-placement', controlsPlacement);
     }
     onViewRect?.(null);
   };

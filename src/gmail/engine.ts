@@ -1,6 +1,6 @@
 import { decodedBody, header, type GmailFullMessage } from './mime';
-import { COLORS, initialState, labelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
-import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type GmailMessageSummary } from './protocol';
+import { COLORS, initialState, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
+import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse } from './protocol';
 import { ApiError, GmailNetworkError, GmailRequests, RunStoppedError } from './requests';
 
 export interface EngineDependencies {
@@ -21,6 +21,22 @@ class PauseRunError extends Error {}
 const active = (run?: StoredRun) => run?.status === 'running' || run?.status === 'stopping';
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'The request failed. Try again.';
 const categorySignature = (categories: DockCategory[]) => JSON.stringify(categories.map(({ id, title, description }) => ({ id, title, description })));
+const sameLabelName = (first: string, second: string) => first.toLowerCase() === second.toLowerCase();
+
+function validateCategoryTitles(categories: DockCategory[]): void {
+  const names = new Set(['uncategorized']);
+  for (const category of categories) {
+    const name = labelName(category).toLowerCase();
+    if (names.has(name)) throw new Error(`A category already uses the title "${category.title}". Choose another title.`);
+    names.add(name);
+  }
+}
+
+function checkLabelConflict(labels: Label[], name: string, ownedId?: string): void {
+  if (labels.some((label) => label.id !== ownedId && sameLabelName(label.name, name))) {
+    throw new Error(`Gmail already has a different label named "${name}". Rename that label or this category, then retry.`);
+  }
+}
 
 /** Only an explicit start/resume command enters drain(). No alarms, onStartup work, or mail watchers. */
 export class GmailEngine {
@@ -91,7 +107,7 @@ export class GmailEngine {
     });
   }
   async handle(request: DockRequest): Promise<DockResponse> {
-    if (request.command === 'state' || request.command === 'stop' || request.command === 'listMessages') return await this.dispatch(request);
+    if (request.command === 'state' || request.command === 'stop') return await this.dispatch(request);
     const previous = this.commandTail;
     let release!: () => void;
     this.commandTail = new Promise<void>((resolve) => { release = resolve; });
@@ -106,7 +122,12 @@ export class GmailEngine {
         case 'disconnect':
           if (active((await this.read()).run)) throw new Error('Stop the current run before disconnecting.');
           await this.deps.disconnect();
-          await this.update((state) => { delete state.accountEmail; delete state.error; });
+          await this.update((state) => {
+            delete state.accountEmail;
+            delete state.error;
+            delete state.uncategorizedLabelName;
+            for (const category of state.categories) delete category.labelName;
+          });
           break;
         case 'pairHelper': await this.pair(request.token); break;
         case 'importCategories': await this.importCategories(request.json); break;
@@ -123,7 +144,7 @@ export class GmailEngine {
             if (state.run?.status === 'running') { state.run.status = 'stopping'; state.run.updatedAt = this.now(); }
           });
           break;
-        case 'listMessages': return { ok: true, ...await this.listMessages(request.categoryId, request.pageToken) };
+        case 'refreshLabels': await this.refreshLabels(); break;
         default: throw new Error('Unknown Dock request.');
       }
       return { ok: true, state: await this.snapshot() };
@@ -159,13 +180,14 @@ export class GmailEngine {
         if (index >= 0) {
           const current = merged[index]!;
           if (current.labelId && current.title !== category.title) throw new Error('Rename existing connected categories with Edit before importing.');
-          merged[index] = { ...category, color: current.color, labelId: current.labelId };
+          merged[index] = { ...category, color: current.color, labelId: current.labelId, labelName: current.labelId ? current.labelName : undefined };
         } else {
           if (merged.some((current) => current.title.toLowerCase() === category.title.toLowerCase())) throw new Error(`A different category already uses the title ${category.title}. Rename it first.`);
           merged.push(category);
         }
       }
       if (merged.length > 50) throw new Error('Import would exceed 50 categories.');
+      validateCategoryTitles(merged);
       state.categories = merged;
     });
   }
@@ -182,11 +204,25 @@ export class GmailEngine {
     }
     await this.update((state) => {
       if (state.accountEmail && state.accountEmail !== profile.emailAddress) throw new Error(`Dock is connected to ${state.accountEmail}. Disconnect first to change accounts.`);
-      // Label IDs are mailbox-specific. Retain the owning account even after disconnect.
-      const previous = state.labelAccountEmail;
+      // Label IDs are mailbox-specific. Keep proven ownership when switching accounts.
+      const previous = state.labelAccountEmail || state.accountEmail;
       if (previous && previous !== profile.emailAddress) {
-        for (const category of state.categories) delete category.labelId;
-        delete state.uncategorizedLabelId;
+        state.labelIdsByAccount ||= {};
+        state.labelIdsByAccount[previous] = {
+          categories: state.categories.flatMap(({ id, labelId }) => labelId ? [{ id, labelId }] : []),
+          ...(state.uncategorizedLabelId ? { uncategorizedLabelId: state.uncategorizedLabelId } : {}),
+        };
+        const saved = state.labelIdsByAccount[profile.emailAddress];
+        for (const category of state.categories) {
+          const labelId = saved?.categories.find((item) => item.id === category.id)?.labelId;
+          if (labelId) category.labelId = labelId;
+          else delete category.labelId;
+          delete category.labelName;
+        }
+        if (saved?.uncategorizedLabelId) state.uncategorizedLabelId = saved.uncategorizedLabelId;
+        else delete state.uncategorizedLabelId;
+        delete state.uncategorizedLabelName;
+        delete state.labelIdsByAccount[profile.emailAddress];
         delete state.run;
       }
       state.labelAccountEmail = profile.emailAddress;
@@ -218,9 +254,13 @@ export class GmailEngine {
     if (!input.id && before.categories.length >= 50) throw new Error('This prototype supports up to 50 categories.');
     const old = before.categories.find((category) => category.id === input.id);
     const category: DockCategory = { id: old?.id || this.uuid(), title, description, icon: input.icon?.slice(0, 32) || old?.icon || 'tag', color: old?.color || COLORS[before.categories.length % COLORS.length]!, ...(old?.labelId ? { labelId: old.labelId } : {}) };
+    validateCategoryTitles(old ? before.categories.map((item) => item.id === old.id ? category : item) : [...before.categories, category]);
     if (old?.labelId) {
       await this.requireAccount();
-      await this.gmail(`labels/${encodeURIComponent(old.labelId)}`, { method: 'PATCH', body: JSON.stringify(this.labelPayload(before, category)) });
+      const { labels = [] } = await this.gmail<{ labels?: Label[] }>('labels');
+      checkLabelConflict(labels, labelName(category), old.labelId);
+      const renamed = await this.gmail<Label>(`labels/${encodeURIComponent(old.labelId)}`, { method: 'PATCH', body: JSON.stringify(this.labelPayload(category)) });
+      category.labelName = renamed.name;
     }
     await this.update((state) => {
       if (active(state.run)) throw new Error('Stop the run before editing categories.');
@@ -243,6 +283,7 @@ export class GmailEngine {
   private validateRun(state: StoredState): void {
     if (!state.helperToken) throw new Error('Start the local helper and paste its pairing token first.');
     if (!state.categories.length) throw new Error('Create at least one category before categorizing.');
+    validateCategoryTitles(state.categories);
     const missing = state.categories.filter((category) => !category.description.trim());
     if (missing.length) throw new Error(`Add descriptions before categorizing: ${missing.map((category) => category.title).join(', ')}.`);
   }
@@ -361,40 +402,63 @@ export class GmailEngine {
       });
     }
   }
-  private labelPayload(state: StoredState, category: Pick<DockCategory, 'id' | 'title' | 'color'>) {
-    return { name: labelName(state, category), messageListVisibility: 'show', labelListVisibility: 'labelShow', color: { backgroundColor: category.color, textColor: '#434343' } };
+  private labelPayload(category: Pick<DockCategory, 'title' | 'color'>) {
+    return { name: labelName(category), messageListVisibility: 'show', labelListVisibility: 'labelShow', color: { backgroundColor: category.color, textColor: '#434343' } };
   }
   private async ensureLabels(): Promise<void> {
     let state = await this.read();
     const runId = state.run!.id;
     const { labels = [] } = await this.gmail<{ labels?: Label[] }>('labels', {}, true, runId);
     const specs: DockCategory[] = [...state.categories, { id: UNCATEGORIZED, title: 'Uncategorized', description: '', icon: 'tag', color: '#e7e7e7', labelId: state.uncategorizedLabelId }];
+    const ownedLabel = (category: DockCategory) => labels.find((label) => label.id === category.labelId && label.type !== 'system')
+      || labels.find((label) => label.name === legacyLabelName(state, category) && label.type !== 'system');
+    // Detect collisions before renaming any labels. A plain name alone does not prove ownership.
+    for (const category of specs) checkLabelConflict(labels, labelName(category), ownedLabel(category)?.id);
     for (const category of specs) {
       if (await this.pauseIfStopped(state.run!.id)) return;
       state = await this.read();
-      let existing = labels.find((label) => label.id === category.labelId && label.type !== 'system') || labels.find((label) => label.name === labelName(state, category) && label.type !== 'system');
-      const payload = this.labelPayload(state, category);
-      if (existing) {
-        await this.gmail(`labels/${encodeURIComponent(existing.id)}`, { method: 'PATCH', body: JSON.stringify(payload) }, true, runId);
-      } else {
-        try { existing = await this.gmail<Label>('labels', { method: 'POST', body: JSON.stringify(payload) }, false, runId); }
+      let existing = ownedLabel(category);
+      const payload = this.labelPayload(category);
+      if (!existing) {
+        // Use the old identity name only until the immutable ID is saved. This makes a lost
+        // create response recoverable without taking ownership of an unrelated plain label.
+        const creationPayload = { ...payload, name: legacyLabelName(state, category) };
+        try { existing = await this.gmail<Label>('labels', { method: 'POST', body: JSON.stringify(creationPayload) }, false, runId); }
         catch (error) {
           if (error instanceof RunStoppedError) throw error;
           // Never blindly retry creates: a lost response may already have created the label.
           const current = await this.gmail<{ labels?: Label[] }>('labels', {}, true, runId);
-          existing = current.labels?.find((label) => label.name === payload.name && label.type !== 'system');
+          existing = current.labels?.find((label) => label.name === creationPayload.name && label.type !== 'system');
           if (!existing) throw error;
         }
         labels.push(existing);
       }
       const labelId = existing.id;
+      // Save ownership before PATCH: a rename can succeed even when its response is lost.
       await this.update((current) => {
-        if (category.id === UNCATEGORIZED) current.uncategorizedLabelId = labelId;
+        if (category.id === UNCATEGORIZED) {
+          if (current.uncategorizedLabelId !== labelId) delete current.uncategorizedLabelName;
+          current.uncategorizedLabelId = labelId;
+        }
         else {
           const matching = current.categories.find((item) => item.id === category.id);
-          if (matching) matching.labelId = labelId;
+          if (matching) {
+            if (matching.labelId !== labelId) delete matching.labelName;
+            matching.labelId = labelId;
+          }
         }
         current.run!.categories = structuredClone(current.categories);
+      });
+      const renamed = await this.gmail<Label>(`labels/${encodeURIComponent(labelId)}`, { method: 'PATCH', body: JSON.stringify(payload) }, true, runId);
+      existing.name = renamed.name;
+      await this.update((current) => {
+        if (category.id === UNCATEGORIZED) {
+          if (current.uncategorizedLabelId === labelId) current.uncategorizedLabelName = renamed.name;
+        } else {
+          const matching = current.categories.find((item) => item.id === category.id && item.labelId === labelId);
+          if (matching) matching.labelName = renamed.name;
+        }
+        if (current.run?.id === runId) current.run.categories = structuredClone(current.categories);
       });
     }
   }
@@ -456,25 +520,27 @@ export class GmailEngine {
       state.run.updatedAt = this.now(); recalculate(state.run);
     });
   }
-  private async listMessages(categoryId: string, pageToken?: string): Promise<{ messages: GmailMessageSummary[]; nextPageToken?: string }> {
+  private async refreshLabels(): Promise<void> {
     const state = await this.requireAccount();
-    const labelId = categoryId === UNCATEGORIZED ? state.uncategorizedLabelId : state.categories.find((category) => category.id === categoryId)?.labelId;
-    if (!labelId) return { messages: [] };
-    const params = new URLSearchParams({ labelIds: labelId, maxResults: '30' });
-    if (pageToken) params.set('pageToken', pageToken);
-    const page = await this.gmail<{ messages?: { id: string }[]; nextPageToken?: string }>(`messages?${params}`);
-    const summaries: GmailMessageSummary[] = [];
-    const ids = page.messages || [];
-    for (let i = 0; i < ids.length; i += 4) {
-      const batch = await Promise.all(ids.slice(i, i + 4).map(async ({ id }) => {
-        try {
-          const message = await this.gmail<GmailFullMessage>(`messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`);
-          return { id: message.id, threadId: message.threadId, sender: header(message.payload, 'From'), subject: header(message.payload, 'Subject') || '(no subject)', snippet: message.snippet || '', receivedAt: Number(message.internalDate), unread: Boolean(message.labelIds?.includes('UNREAD')), gmailUrl: `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(state.accountEmail!)}#all/${message.threadId}` };
-        } catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
-      }));
-      summaries.push(...batch.filter((message): message is GmailMessageSummary => message !== null));
-    }
-    return { messages: summaries, nextPageToken: page.nextPageToken };
+    const { labels = [] } = await this.gmail<{ labels?: Label[] }>('labels');
+    const namesById = new Map(labels.filter((label) => label.type !== 'system').map((label) => [label.id, label.name]));
+    const requested = new Map(state.categories.map((category) => [category.id, category]));
+    await this.update((current) => {
+      if (current.accountEmail !== state.accountEmail) return;
+      for (const category of current.categories) {
+        const before = requested.get(category.id);
+        // A run can rename a label while this read is pending. Keep its newer name.
+        if (!before || before.labelId !== category.labelId || before.labelName !== category.labelName) continue;
+        const name = category.labelId ? namesById.get(category.labelId) : undefined;
+        if (name) category.labelName = name;
+        else delete category.labelName;
+      }
+      if (current.uncategorizedLabelId === state.uncategorizedLabelId && current.uncategorizedLabelName === state.uncategorizedLabelName) {
+        const name = current.uncategorizedLabelId ? namesById.get(current.uncategorizedLabelId) : undefined;
+        if (name) current.uncategorizedLabelName = name;
+        else delete current.uncategorizedLabelName;
+      }
+    });
   }
   private async gmail<T = unknown>(path: string, init: RequestInit = {}, retry = true, runId?: string): Promise<T> {
     let refreshed = false;

@@ -29,6 +29,7 @@ export interface StoredState extends Omit<DockState, 'oauthConfigured' | 'helper
   installationId: string;
   helperToken?: string;
   labelAccountEmail?: string;
+  labelIdsByAccount?: Record<string, { categories: { id: string; labelId: string }[]; uncategorizedLabelId?: string }>;
   recentDecisions?: { messageId: string; decision: Classification }[];
   uncategorizedLabelId?: string;
   gmailTraffic?: GmailTraffic;
@@ -66,6 +67,7 @@ export function publicState(state: StoredState, oauthConfigured: boolean): DockS
   return {
     version: 2, categories: state.categories, daysBack: state.daysBack,
     accountEmail: state.accountEmail, helperReady: Boolean(state.helperToken), oauthConfigured,
+    uncategorizedLabelName: state.uncategorizedLabelName,
     error: state.error,
     ...(run ? { run: {
       id: run.id, status: run.status, phase: run.phase, daysBack: run.daysBack, total: run.total,
@@ -81,8 +83,12 @@ export function recalculate(run: StoredRun): void {
   run.skipped = run.items.filter((item) => item.status === 'skipped').length;
   run.processed = run.succeeded + run.failed + run.skipped;
 }
-/** Name embeds an install/category identity; a matching name safely recovers a create whose reply was lost. */
-export function labelName(state: StoredState, category: Pick<DockCategory, 'id' | 'title'>): string {
+/** Gmail shows only the category title. Ownership is stored by immutable label ID. */
+export function labelName(category: Pick<DockCategory, 'title'>): string {
+  return category.title.trim();
+}
+/** Recover old labels and interrupted creates before renaming them to the category title. */
+export function legacyLabelName(state: StoredState, category: Pick<DockCategory, 'id' | 'title'>): string {
   let hash = 14695981039346656037n;
   for (const character of `${state.installationId}:${category.id}`) hash = BigInt.asUintN(64, (hash ^ BigInt(character.codePointAt(0)!)) * 1099511628211n);
   return `Dock/${category.title.replace(/[\r\n\/]/g, ' ')} [${hash.toString(16).padStart(16, '0').slice(-12)}]`;
