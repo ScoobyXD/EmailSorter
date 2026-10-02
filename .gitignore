@@ -1,0 +1,15 @@
+node_modules/
+/outputs/
+.wxt/
+.output/
+test-results/
+playwright-report/
+/work/engine-log-events.json
+
+.env*
+!.env.example
+helper/private/
+helper/.local/
+*.pem
+*.key
+helper/.private/

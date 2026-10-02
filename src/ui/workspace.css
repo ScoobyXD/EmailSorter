@@ -1,0 +1,141 @@
+.dock-workspace-controls, .dock-workspace-controls *, .dock-dialog, .dock-dialog *, .dock-native-view, .dock-native-view * { box-sizing: border-box; }
+.dock-workspace-controls { display: flow-root; min-width: 0; width: 100%; font: 14px/1.45 var(--dock-tab-font-family, Arial, sans-serif); color: #444746; background: #fff; }
+.dock-native-tabs { display: flex; flex-wrap: wrap; align-items: stretch; min-width: 0; width: 100%; }
+.dock-native-tab-item { display: flex; flex: 0 1 auto; min-width: 0; max-width: 100%; position: relative; align-items: stretch; color: var(--dock-tab-color, #444746); font-family: var(--dock-tab-font-family, "Google Sans", Roboto, Arial, sans-serif); font-size: var(--dock-tab-font-size, 14px); background: transparent; }
+.dock-native-tab-item.is-active { color: var(--dock-tab-active-color, #0b57d0); }
+.dock-native-tab-item.is-active::after { content: ""; position: absolute; bottom: 0; left: 12px; right: 12px; height: 3px; border-radius: 3px 3px 0 0; background: var(--dock-tab-active-color, #0b57d0); pointer-events: none; }
+.dock-native-tab-item .dock-native-tab, .dock-native-add { appearance: none; font: inherit; line-height: 1.4; color: inherit; border: 0; border-radius: 0; padding: 0 12px; margin: 0; background: transparent; cursor: pointer; min-height: var(--dock-tab-height, 58px); display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
+.dock-native-tab-item .dock-native-tab { min-width: 0; max-width: 100%; padding-inline-end: 58px; font-weight: var(--dock-tab-font-weight, 400); line-height: var(--dock-tab-line-height, 20px); }
+.dock-native-tab-item.is-system .dock-native-tab { padding-inline-end: 12px; }
+.dock-native-tab-item .dock-native-tab > span { overflow-wrap: anywhere; }
+.dock-native-tab svg, .dock-native-add svg { display: block; flex-shrink: 0; width: 18px; height: 18px; color: inherit; }
+.dock-native-tab-item .dock-native-tab:hover, .dock-native-add:hover { background: rgba(60, 64, 67, .04); }
+.dock-tab-actions { position: absolute; inset-inline-end: 3px; top: 0; height: 100%; display: flex; align-items: center; opacity: 0; pointer-events: none; }
+.dock-native-tab-item:hover .dock-tab-actions, .dock-native-tab-item:focus-within .dock-tab-actions, .dock-native-tab-item.is-active .dock-tab-actions { opacity: 1; pointer-events: auto; }
+.dock-tab-actions button { appearance: none; border: 0; background: transparent; color: #5f6368; font: 11px/1 Arial, sans-serif; min-height: 30px; padding: 3px; cursor: pointer; border-radius: 4px; }
+.dock-tab-actions button:hover { background: #e8eaed; color: #202124; }
+.dock-tab-actions .dock-tab-delete { width: 24px; display: grid; place-items: center; }
+.dock-native-add { flex: 0 0 42px; justify-content: center; padding: 0; color: #444746; }
+.dock-workspace-controls button:focus-visible, .dock-dialog button:focus-visible, .dock-native-view button:focus-visible, .dock-native-view a:focus-visible, .dock-workspace-controls input:focus-visible, .dock-dialog input:focus-visible, .dock-dialog textarea:focus-visible, .dock-dialog select:focus-visible, .dock-native-view select:focus-visible { outline: 2px solid #0b57d0; outline-offset: -2px; border-radius: 3px; }
+.dock-workspace-controls button:disabled, .dock-dialog button:disabled, .dock-native-view button:disabled { cursor: default; opacity: .5; }
+.dock-controls-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 10px 12px 3px; border-top: 1px solid #edf0f2; }
+.dock-workspace-controls .dock-button, .dock-dialog .dock-button, .dock-native-view .dock-button { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font: 13px/1.4 Arial, sans-serif; background: #fff; color: #0b57d0; border: 1px solid #dadce0; border-radius: 5px; min-height: 34px; padding: 7px 12px; cursor: pointer; text-decoration: none; }
+.dock-workspace-controls .dock-button:hover:not(:disabled), .dock-dialog .dock-button:hover:not(:disabled), .dock-native-view .dock-button:hover:not(:disabled) { background: #f1f5fc; }
+.dock-workspace-controls .dock-primary, .dock-dialog .dock-primary { background: #0b57d0; color: #fff; border-color: #0b57d0; }
+.dock-workspace-controls .dock-primary:hover:not(:disabled), .dock-dialog .dock-primary:hover:not(:disabled) { background: #0842a0; }
+.dock-days { display: flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.dock-days output { font-weight: 600; min-width: 2ch; text-align: center; }
+.dock-days input { display: block; accent-color: #0b57d0; width: 105px; min-width: 55px; margin-inline-start: 7px; }
+.dock-setup-button { margin-inline-start: auto; }
+.dock-scope, .dock-account, .dock-notice, .dock-announcement { margin: 4px 12px 8px; font: 12px/1.55 Arial, sans-serif; color: #5f6368; overflow-wrap: anywhere; }
+.dock-account { margin-top: -3px; }
+.dock-notice { color: #7a4f01; }
+.dock-announcement { color: #174ea6; }
+.dock-demo-note { color: #70757a; font-size: 12px; }
+.dock-run-status { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; margin: 7px 12px; font: 12px/1.55 Arial, sans-serif; }
+.dock-run-status progress { width: 130px; height: 7px; accent-color: #0b57d0; }
+.dock-run-status .dock-error { flex: 1 1 100%; }
+.dock-dialog { position: fixed; inset: 0; border: 1px solid #dadce0; border-radius: 12px; padding: 25px; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); margin: auto; background: #fff; color: #202124; box-shadow: 0 10px 40px #20212433; font: 14px/1.5 Arial, sans-serif; overflow: auto; }
+.dock-dialog::backdrop { background: #20212450; }
+.dock-dialog h2 { font-size: 21px; font-weight: 400; margin: 0 0 17px; overflow-wrap: anywhere; }
+.dock-dialog p { margin: 12px 0; overflow-wrap: anywhere; }
+.dock-dialog label { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 13px 0; color: #444746; font-size: 13px; }
+.dock-dialog input, .dock-dialog textarea, .dock-dialog select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #9aa0a6; border-radius: 4px; color: #202124; font: 14px/1.5 Arial, sans-serif; background: #fff; }
+.dock-dialog textarea { resize: vertical; min-height: 80px; }
+.dock-dialog input:user-invalid, .dock-dialog textarea:user-invalid { border-color: #b3261e; }
+.dock-dialog .dock-field-help { font-size: 12px; color: #5f6368; line-height: 1.6; margin: 7px 0 13px; }
+.dock-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.dock-connect-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+.dock-error { color: #b3261e; font-size: 13px; }
+.dock-native-sr-only { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; pointer-events: none !important; }
+.dock-native-view { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: auto; background: #fff; color: #202124; font: 14px/1.5 var(--dock-tab-font-family, Arial, sans-serif); }
+.dock-native-view button { appearance: none; cursor: pointer; border: 0; margin: 0; color: inherit; background: none; font: inherit; }
+.dock-native-view-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #edf0f2; min-height: 52px; }
+.dock-native-view .dock-native-back { display: flex; align-items: center; gap: 12px; padding: 7px 10px; margin-left: -10px; border-radius: 5px; color: #444746; font-size: 13px; }
+.dock-native-view .dock-native-back:hover { background: #f1f3f4; }
+.dock-native-sample-note { font-family: Arial, sans-serif; font-size: 12px; color: #5f6368; border: 1px solid #dadce0; border-radius: 4px; padding: 2px 7px; white-space: nowrap; }
+.dock-native-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 20px 24px 10px; gap: 14px; }
+.dock-native-heading h1 { font-size: 22px; font-weight: 400; margin: 0; overflow-wrap: anywhere; }
+.dock-message-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font: 12px/1.5 Arial, sans-serif; color: #5f6368; }
+.dock-message-controls select { padding: 5px; font: inherit; border: 1px solid #dadce0; border-radius: 3px; background: #fff; color: #444746; }
+.dock-message-controls button { padding: 6px; }
+.dock-view-scope { margin: 0 24px 15px; color: #5f6368; font: 12px/1.6 Arial, sans-serif; }
+.dock-native-message-list { min-width: 0; }
+.dock-native-view .dock-native-message-row { display: flex; width: 100%; align-items: center; gap: 14px; min-height: 44px; padding: 9px 24px; border-top: 1px solid #eceff1; background: #f2f6fc; text-align: left; color: #202124; text-decoration: none; font: 14px/1.5 Arial, sans-serif; }
+.dock-native-view .dock-native-message-row:hover { position: relative; z-index: 1; box-shadow: inset 1px 0 #dadce0, inset -1px 0 #dadce0, 0 1px 2px #3c40434d; }
+.dock-native-view .dock-native-message-row.is-expanded { background: #eaf1fb; }
+.dock-native-view .dock-native-message-row.is-unread { background: #fff; }
+.dock-native-row-star, .dock-native-message-row > svg { color: #6f7478; flex-shrink: 0; }
+.dock-native-sender { flex: 0 1 160px; min-width: 75px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-native-message-text { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+.dock-native-message-text > strong { font-weight: 400; }
+.is-unread .dock-native-sender, .is-unread .dock-native-message-text > strong { font-weight: 600; }
+.dock-native-snippet { color: #5f6368; }
+.dock-native-message-row time { font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+.dock-native-expanded { padding: 22px 32px 30px 65px; border-top: 1px solid #e0e3e7; border-bottom: 1px solid #e0e3e7; font: 14px/1.7 Arial, sans-serif; }
+.dock-native-expanded > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #5f6368; font-size: 13px; }
+.dock-native-expanded button { display: grid; place-items: center; padding: 5px; border-radius: 50%; }
+.dock-native-expanded button:hover { background: #f1f3f4; }
+.dock-native-expanded p { white-space: pre-wrap; margin: 18px 0 0; }
+.dock-native-empty { flex: 1; min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; color: #5f6368; }
+.dock-native-empty > svg { color: #9aa0a6; margin-bottom: 14px; }
+.dock-native-empty h2 { margin: 0 0 7px; color: #3c4043; font-size: 17px; font-weight: 400; }
+.dock-native-empty p { margin: 0; font: 13px/1.7 Arial, sans-serif; }
+.dock-native-content-note { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 28px 20px 22px; color: #70757a; font: 12px/1.5 Arial, sans-serif; text-align: center; }
+.dock-native-content-note svg { flex-shrink: 0; }
+.dock-native-view .dock-load-more { align-self: center; margin: 18px 12px; }
+@media (pointer: coarse) { .dock-tab-actions { opacity: 1; pointer-events: auto; } .dock-tab-actions button { min-height: 40px; } .dock-dialog input, .dock-dialog textarea, .dock-dialog select { font-size: 16px; } }
+@media (max-width: 750px) { .dock-native-sender { flex-basis: 105px; } .dock-native-row-star { display: none; } .dock-native-view .dock-native-message-row { padding-left: 16px; padding-right: 16px; gap: 10px; } .dock-native-expanded { padding-left: 22px; } .dock-setup-button { margin-inline-start: 0; } .dock-days { flex-wrap: wrap; } .dock-native-heading { padding-left: 16px; padding-right: 16px; } }
+.dock-resume-choice { display: flex; align-items: center; gap: 7px; } .dock-resume-choice input { accent-color: #0b57d0; } .dock-category-transfer { margin-top: 18px; border-top: 1px solid #e0e3e7; padding-top: 12px; } .dock-category-transfer summary { cursor: pointer; font-size: 13px; }
+
+.dock-controls-tools { margin-inline-start: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.dock-controls-tools .dock-setup-button { margin-inline-start: 0; }
+.dock-logs { width: 920px; padding: 24px; scrollbar-gutter: stable; }
+.dock-logs-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.dock-logs-header h2 { margin: 0 0 5px; }
+.dock-logs-header p { margin: 0; color: #5f6368; font-size: 13px; }
+.dock-logs-header > button { flex: 0 0 auto; }
+.dock-logs-guide { margin: 20px 0; padding: 12px 15px; background: #f2f6fc; border-radius: 7px; font-size: 13px; }
+.dock-logs summary { cursor: pointer; }
+.dock-logs summary:focus-visible { outline: 2px solid #0b57d0; outline-offset: 3px; border-radius: 2px; }
+.dock-logs-guide summary { color: #174ea6; font-weight: 600; }
+.dock-logs-guide ol { padding-inline-start: 22px; margin: 14px 0; }
+.dock-logs-guide li { margin: 9px 0; }
+.dock-logs-guide p { margin-bottom: 0; }
+.dock-logs-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.dock-logs-toolbar > label { flex: 1; min-width: 190px; margin: 0; }
+.dock-logs-toolbar > button { min-height: 42px; }
+.dock-log-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0 8px; gap: 12px; }
+.dock-log-totals > div { border: 1px solid #e0e3e7; border-radius: 6px; padding: 12px 14px; }
+.dock-log-totals dt { font-size: 12px; color: #5f6368; }
+.dock-log-totals dd { font-size: 23px; font-weight: 400; margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+.dock-logs .dock-log-help { font-size: 12px; color: #5f6368; margin: 9px 0; }
+.dock-log-current { font-size: 13px; }
+.dock-log-persistence { padding: 12px 0; border-bottom: 1px solid #e0e3e7; font-size: 12px; color: #5f6368; }
+.dock-log-persistence summary { color: #444746; }
+.dock-log-persistence code { overflow-wrap: anywhere; font-size: 11px; }
+.dock-log-filters { display: grid; grid-template-columns: minmax(0, 1fr) 185px; gap: 12px; }
+.dock-log-events { list-style: none; padding: 0; margin: 18px 0 12px; border: 1px solid #e0e3e7; border-radius: 6px; }
+.dock-log-events:empty { display: none; }
+.dock-log-event { padding: 12px 15px; border-top: 1px solid #e0e3e7; border-inline-start: 3px solid transparent; }
+.dock-log-event:first-child { border-top: 0; }
+.dock-log-event.dock-log-warn { border-inline-start-color: #b06000; }
+.dock-log-event.dock-log-error { border-inline-start-color: #b3261e; }
+.dock-log-event summary { overflow-wrap: anywhere; }
+.dock-log-event summary > strong { display: block; font-size: 13px; font-weight: 500; margin-top: 5px; }
+.dock-log-event-meta { display: inline-flex; justify-content: space-between; flex-wrap: wrap; gap: 5px 18px; width: calc(100% - 20px); font-size: 11px; color: #5f6368; font-variant-numeric: tabular-nums; }
+.dock-log-event-meta > span { text-transform: capitalize; }
+.dock-log-event-identifiers { display: block; font-size: 12px; color: #5f6368; margin-top: 4px; }
+.dock-log-event pre { background: #f8f9fa; border-radius: 4px; margin: 12px 0 0; padding: 12px; max-height: 350px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 Consolas, monospace; }
+.dock-log-empty { padding: 24px 12px; text-align: center; color: #5f6368; font-size: 13px; }
+.dock-log-older { margin-bottom: 4px; }
+@media (max-width: 600px) {
+  .dock-logs { padding: 18px; max-width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }
+  .dock-log-totals { gap: 6px; }
+  .dock-log-totals > div { padding: 10px 8px; }
+  .dock-log-totals dd { font-size: 20px; }
+  .dock-log-filters { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .dock-log-filters label { margin-bottom: 0; }
+  .dock-log-event { padding: 12px 10px; }
+  .dock-controls-tools { margin-inline-start: 0; }
+}
