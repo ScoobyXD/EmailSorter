@@ -1,3 +1,4 @@
+import { seedStoredState } from './extension-fixture.mjs';
 import { chromium, expect } from '@playwright/test';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -239,7 +240,7 @@ async function checkExistingCategoryEdits(page, worker) {
   await expect(customs).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Unsaved first category', exact: true })).toHaveCount(0);
 
-  await worker.evaluate(async () => {
+  await seedStoredState(context, page, async () => {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     state.categories[0].color = '#b6cff5';
     await chrome.storage.local.set({ 'dock-gmail-v2': state });
@@ -347,7 +348,7 @@ try {
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run)).toBeUndefined();
 
   // A previous browser lifetime is paused, never resumed automatically by mounting or polling.
-  await worker.evaluate(async () => {
+  await seedStoredState(context, page, async () => {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     const now = Date.now();
     state.accountEmail = 'fixture@example.test';
@@ -360,7 +361,7 @@ try {
   await expect(page.getByRole('checkbox', { name: 'Resume unfinished', exact: true })).toBeChecked();
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run.status)).toBe('paused');
   await expect(page.getByRole('button', { name: 'Categorize emails', exact: true })).toBeDisabled();
-  await worker.evaluate(async () => { const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2']; delete state.run; delete state.accountEmail; await chrome.storage.local.set({ 'dock-gmail-v2': state }); });
+  await seedStoredState(context, page, async () => { const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2']; delete state.run; delete state.accountEmail; await chrome.storage.local.set({ 'dock-gmail-v2': state }); });
   await page.reload();
 
   await page.evaluate(() => {

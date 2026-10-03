@@ -1,3 +1,4 @@
+import { seedStoredState } from './extension-fixture.mjs';
 /** Geometry regression for Dock controls in clipped Gmail category wrappers.
  * Loads only the built extension and synthetic pages. No live mailbox or OAuth.
  */
@@ -64,21 +65,10 @@ await context.route(/^https?:\/\//, async route => {
 
 async function settle(page) {
   await expect(page.getByRole('slider', { name: 'Days back', exact: true })).toBeAttached();
+  await expect(page.getByRole('button', { name: 'Gmail usage', exact: true })).toBeEnabled();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
-async function seedStoredState(page, update, value) {
-  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
-  await worker.evaluate(update, value);
-  // 1. Seed only this isolated profile's extension storage.
-  // 2. Stop its worker so the next UI request reads the seed into a fresh cache.
-  const session = await context.newCDPSession(page);
-  try {
-    await session.send('ServiceWorker.enable');
-    await session.send('ServiceWorker.stopAllWorkers');
-    await expect.poll(() => context.serviceWorkers().includes(worker)).toBe(false);
-  } finally { await session.detach(); }
-}
 
 async function inspectControl(locator) {
   return await locator.evaluate(element => {
@@ -200,7 +190,8 @@ async function checkStickyToolbar(page, scenario, scrollTop) {
   if (hasResume) await resume.uncheck();
   const days = page.getByRole('slider', { name: 'Days back', exact: true });
   const previousDays = await days.inputValue();
-  await days.click({ position: { x: Number(previousDays) < 182 ? 70 : 10, y: 8 } });
+  const midpoint = await days.evaluate(input => (Number(input.min) + Number(input.max)) / 2);
+  await days.click({ position: { x: Number(previousDays) < midpoint ? 70 : 10, y: 8 } });
   await expect(days).not.toHaveValue(previousDays);
   if (hasResume) await resume.check();
   await page.getByRole('button', { name: /^(Connect Gmail|Connection)$/ }).click();
@@ -219,7 +210,7 @@ async function checkNestedGmailToolbar() {
   await page.goto('https://mail.google.com/mail/u/0/?nestedToolbar=1#inbox');
   await expect(page.getByRole('tab', { name: 'Edit Me!', exact: true })).toHaveCount(3);
   // Retain the wider layout and migration coverage with saved category definitions.
-  await seedStoredState(page, async () => {
+  await seedStoredState(context, page, async () => {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     state.categories = [['customs', 'Customs'], ['shipping', 'Shipping'], ['purchasing', 'Purchase orders'], ['vendors', 'Vendors'], ['invoices', 'Invoices']].map(([id, title]) => ({ id, title, description: `${title} fixture messages.`, icon: 'tag', color: '#c9daf8' }));
     await chrome.storage.local.set({ 'dock-gmail-v2': state });
@@ -251,7 +242,7 @@ async function checkNestedGmailToolbar() {
   await scrolledPage.close();
 
   const error = '3 email(s) failed. Completed labels are saved; retry resumes only unfinished emails. Email body exceeds 60,000 characters. This email was left unchanged.';
-  await seedStoredState(page, async error => {
+  await seedStoredState(context, page, async error => {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     const now = Date.now();
     state.accountEmail = 'nested-toolbar@example.test';
@@ -324,7 +315,7 @@ async function checkNestedGmailToolbar() {
   await page.evaluate(() => { location.hash = '#inbox'; });
   await expect(page.locator('.aqK > dock-inbox-controls')).toHaveAttribute('data-dock-toolbar-placement', 'native');
   await assess(page, 'nested-toolbar-route-restored');
-  await seedStoredState(page, async () => {
+  await seedStoredState(context, page, async () => {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     delete state.run;
     delete state.accountEmail;
@@ -417,7 +408,7 @@ try {
     if (mixedContent) {
       expect(await page.locator('#mixed-envelope').evaluate(element => getComputedStyle(element).height)).toBe('500px');
       expect(await page.locator('#mixed-envelope').evaluate(element => getComputedStyle(element).overflow)).toBe('hidden');
-      await seedStoredState(page, async () => {
+      await seedStoredState(context, page, async () => {
         const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
         const now = Date.now();
         state.accountEmail = 'clipping-fixture@example.test';
@@ -458,7 +449,7 @@ try {
       await expect(page.getByRole('button', { name: '1 error', exact: true })).toBeVisible();
       reports.push({ scenario: `${label}-saved-run-wide`, savedToolbar });
       await page.screenshot({ path: path.join(artifacts, `${label}-saved-run-wide.png`), fullPage: true });
-      await seedStoredState(page, async () => {
+      await seedStoredState(context, page, async () => {
         const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
         delete state.run;
         delete state.accountEmail;
