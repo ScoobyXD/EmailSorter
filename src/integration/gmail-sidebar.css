@@ -29,7 +29,7 @@
   inset-inline-start: 3px;
   width: 2px;
   background: #747775;
-  opacity: .25;
+  opacity: 0;
 }
 [data-dock-sidebar-handle]::after {
   content: '';
@@ -58,6 +58,6 @@ body[data-dock-sidebar-dragging] * {
 }
 @media (forced-colors: active) {
   [data-dock-sidebar-handle]::before,
-  [data-dock-sidebar-handle]::after { background: ButtonText; opacity: 1; }
+  [data-dock-sidebar-handle]::after { background: ButtonText; }
   [data-dock-sidebar-handle]:focus-visible:not([data-dock-sidebar-pointer-focus]) { outline-color: Highlight; }
 }

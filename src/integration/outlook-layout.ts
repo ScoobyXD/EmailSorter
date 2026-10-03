@@ -5,7 +5,7 @@ type OutlookLayoutOptions = Pick<GmailLayoutOptions, 'tabsHost' | 'onNativeSelec
   onViewRect?: (rectangle: OutlookViewRect | null) => void;
 };
 
-/** Outlook's prototype uses its own wrapping filter row at the top of the mail area. */
+/** Outlook's prototype uses its own scrolling filter row at the top of the mail area. */
 export function attachOutlookLayout({ tabsHost, onViewRect, onNativeSelect }: OutlookLayoutOptions): () => void {
   let frame = 0;
   let disposed = false;

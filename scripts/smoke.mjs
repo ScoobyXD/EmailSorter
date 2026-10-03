@@ -17,6 +17,7 @@ const context = await chromium.launchPersistentContext(profile, {
   executablePath,
   channel: 'chromium',
   headless: true,
+  ignoreDefaultArgs: ['--hide-scrollbars'],
   viewport: { width: 1440, height: 1000 },
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
 });
@@ -45,14 +46,44 @@ await context.route('https://**/*', async route => {
   }
 });
 
-async function assertNoHorizontalScroll(page) {
-  const result = await page.locator('dock-inbox-tabs').evaluate(host => {
-    const nodes = [host, ...host.shadowRoot.querySelectorAll('*')];
-    return nodes.filter(node => node instanceof HTMLElement && getComputedStyle(node).display !== 'contents')
-      .some(node => ['auto','scroll'].includes(getComputedStyle(node).overflowX) && node.scrollWidth > node.clientWidth + 1);
+async function assertSingleRowScroll(page, expectedOverflow) {
+  const result = await page.locator('.dock-native-tabs').evaluate(tabs => {
+    const host = tabs.getRootNode().host;
+    const nativeSlot = host?.closest('[data-dock-gmail-layout="native"]');
+    const previewRow = tabs.closest('.mail-category-row');
+    const scrollport = nativeSlot?.parentElement ?? previewRow ?? tabs;
+    const nativeTabs = nativeSlot ? [...scrollport.querySelectorAll('[role="tab"]')]
+      : previewRow ? [...previewRow.querySelectorAll('.mail-native-tab')] : [];
+    const controls = [...nativeTabs, ...tabs.querySelectorAll('.dock-native-tab, .dock-native-add')];
+    const tops = controls.map(element => element.getBoundingClientRect().top);
+    const previousScroll = scrollport.scrollLeft;
+    scrollport.scrollLeft = scrollport.scrollWidth;
+    const canScroll = scrollport.scrollLeft > 0;
+    scrollport.scrollLeft = previousScroll;
+    const style = getComputedStyle(scrollport);
+    return {
+      oneRow: Math.max(...tops) - Math.min(...tops) <= 2,
+      overflowX: style.overflowX,
+      scrollbarWidth: style.scrollbarWidth,
+      overflows: scrollport.scrollWidth > scrollport.clientWidth + 1,
+      canScroll,
+      scrollbarHeight: scrollport.offsetHeight - scrollport.clientHeight - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth),
+    };
   });
-  expect(result).toBe(false);
+  expect(result.oneRow, 'Native tabs, custom tabs, and Add must stay on one row').toBe(true);
+  expect(['auto', 'scroll']).toContain(result.overflowX);
+  expect(result.scrollbarWidth, 'The category strip must use a thin scrollbar').toBe('thin');
+  if (typeof expectedOverflow === 'boolean') expect(result.overflows, 'Category overflow must match the available width').toBe(expectedOverflow);
+  if (expectedOverflow === false) {
+    expect(result.overflowX, 'A category strip that fits must not force a scrollbar').toBe('auto');
+    expect(result.canScroll).toBe(false);
+    expect(result.scrollbarHeight).toBeLessThanOrEqual(1);
+  }
+  if (result.overflows) expect(result.canScroll, 'Overflowing categories must scroll horizontally').toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  const add = page.getByRole('button', { name: 'Add category', exact: true });
+  await add.scrollIntoViewIfNeeded();
+  await expect(add).toBeInViewport({ ratio: 1 });
 }
 
 async function fillCategory(page, title, description) {
@@ -63,6 +94,7 @@ async function fillCategory(page, title, description) {
 
 async function clickWithMouse(page, locator) {
   await expect(locator).toBeVisible();
+  await locator.scrollIntoViewIfNeeded();
   const target = await locator.evaluate(element => {
     const box = element.getBoundingClientRect();
     const x = box.left + box.width / 2;
@@ -277,7 +309,10 @@ try {
   await expect(page.getByText(/^Only messages currently in Inbox/)).toHaveCount(0);
   await expect(page.getByText(/^Categorization account:/)).toHaveCount(0);
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run)).toBeUndefined();
-  await assertNoHorizontalScroll(page);
+  await assertSingleRowScroll(page);
+  await page.setViewportSize({ width: 2400, height: 1000 });
+  await assertSingleRowScroll(page, false);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: path.join(artifacts, 'gmail-extension.png') });
   await page.getByRole('tab', { name: 'Shipping', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Connect Dock', exact: true })).toBeVisible();
@@ -342,9 +377,15 @@ try {
   await page.getByRole('textbox', { name: 'Name', exact: true }).press('Escape');
   await expect(page.getByRole('button', { name: 'Add category', exact: true })).toBeFocused();
   await expect(page.getByRole('tab', { name: 'Discarded draft', exact: true })).toHaveCount(0);
-  await page.getByRole('slider', { name: 'Days back' }).fill('45');
-  await page.getByRole('slider', { name: 'Days back' }).press('ArrowRight');
-  await expect.poll(async () => await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].daysBack)).toBe(46);
+  const daysSlider = page.getByRole('slider', { name: 'Days back' });
+  await expect(daysSlider).toHaveAttribute('min', '0');
+  await expect(daysSlider).toHaveAttribute('max', '100');
+  await daysSlider.press('Home');
+  await expect(daysSlider).toHaveValue('0');
+  await expect.poll(async () => await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].daysBack)).toBe(0);
+  await daysSlider.press('End');
+  await expect(daysSlider).toHaveValue('100');
+  await expect.poll(async () => await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].daysBack)).toBe(100);
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run)).toBeUndefined();
 
   // A previous browser lifetime is paused, never resumed automatically by mounting or polling.
@@ -352,13 +393,26 @@ try {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     const now = Date.now();
     state.accountEmail = 'fixture@example.test';
-    state.run = { id: 'fixture-interrupted', owner: 'previous-worker', status: 'running', phase: 'categorizing', daysBack: 30, total: 2, processed: 1, succeeded: 1, failed: 0, skipped: 0, startedAt: now, updatedAt: now, cutoff: now - 30 * 86400000, before: now, query: 'fixture', discovered: true, categories: state.categories, accountEmail: state.accountEmail, items: [{ id: 'fixture-a', status: 'succeeded' }, { id: 'fixture-b', status: 'pending' }] };
+    state.daysBack = 180;
+    state.run = { id: 'fixture-interrupted', owner: 'previous-worker', status: 'running', phase: 'categorizing', daysBack: 180, total: 2, processed: 1, succeeded: 1, failed: 0, skipped: 0, startedAt: now, updatedAt: now, cutoff: now - 180 * 86400000, before: now, query: 'fixture', discovered: true, categories: state.categories, accountEmail: state.accountEmail, items: [{ id: 'fixture-a', status: 'succeeded' }, { id: 'fixture-b', status: 'pending' }] };
     await chrome.storage.local.set({ 'dock-gmail-v2': state });
   });
   await page.reload();
   await expect(page.getByText(/^Categorization account:/)).toHaveCount(0);
   await expect(page.getByText('1 labeled · 1/2 processed · Stopped', { exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Resume unfinished', exact: true })).toBeChecked();
+  await expect(page.locator('.dock-days output')).toHaveText('180');
+  await expect(daysSlider).toHaveValue('100');
+  await expect(daysSlider).toHaveAttribute('aria-valuetext', /180/);
+  await expect(daysSlider).toBeDisabled();
+  await page.getByRole('checkbox', { name: 'Resume unfinished', exact: true }).uncheck();
+  await expect(daysSlider).toBeEnabled();
+  await expect(page.locator('.dock-days output')).toHaveText('100');
+  await daysSlider.press('Home');
+  await expect.poll(async () => await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].daysBack)).toBe(0);
+  await page.getByRole('checkbox', { name: 'Resume unfinished', exact: true }).check();
+  await expect(page.locator('.dock-days output')).toHaveText('180');
+  expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run.daysBack)).toBe(180);
   expect(await worker.evaluate(async () => (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'].run.status)).toBe('paused');
   await expect(page.getByRole('button', { name: 'Categorize emails', exact: true })).toBeDisabled();
   await seedStoredState(context, page, async () => { const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2']; delete state.run; delete state.accountEmail; await chrome.storage.local.set({ 'dock-gmail-v2': state }); });
@@ -415,7 +469,7 @@ try {
   await freshLabel.close();
   await page.setViewportSize({ width: 850, height: 900 });
   await expect(page.getByRole('button', { name: 'Add category', exact: true })).toBeVisible();
-  await assertNoHorizontalScroll(page);
+  await assertSingleRowScroll(page, true);
 
   for (const host of ['outlook.office.com', 'outlook.live.com', 'outlook.office365.com', 'outlook.cloud.microsoft']) {
     const outlook = await context.newPage();
@@ -443,6 +497,7 @@ try {
   await preview.reload();
   await expect(preview.getByRole('tab', { name: 'Shipping', exact: true })).toBeVisible();
   await expect(preview.locator('.prototype-panel, .mail-dock-launcher, .dock-app')).toHaveCount(0);
+  await assertSingleRowScroll(preview);
   await preview.screenshot({ path: path.join(output, 'Dock-preview.png'), fullPage: true });
   await preview.getByRole('tab', { name: 'Shipping', exact: true }).click();
   await expect(preview.getByRole('button', { name: /^Open sample message:/ })).toHaveCount(2);
@@ -459,7 +514,7 @@ try {
   await expect(preview.locator('.mail-scene')).toHaveClass(/outlook/);
   await preview.setViewportSize({ width: 390, height: 844 });
   await expect(preview.getByRole('button', { name: 'Add category', exact: true })).toBeVisible();
-  expect(await preview.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await assertSingleRowScroll(preview, true);
   const mobileAdd = preview.getByRole('button', { name: 'Add category', exact: true });
   await mobileAdd.click();
   await assertEditorSurface(preview, mobileAdd, false);

@@ -27,7 +27,7 @@ The old Codex workspace paths forward to this project for compatibility with the
 15. Double-click the edge to restore Gmail's default width. The focused edge also supports arrow keys, Home, End, and Enter to reset.
 16. New installs start with three **Edit Me!** categories. Give each a name and description before categorizing. Existing saved categories stay intact.
 17. **Edit** opens a compact panel below the category: Icon and Color, then Name and Description. Save applies all four fields.
-18. The sidebar edge returns to gray when the pointer leaves. Keyboard focus still shows a blue outline.
+18. Only the small dark drag handle appears at rest. Hover, dragging, and keyboard focus show a blue edge.
 19. Open the errors dropdown to read full saved errors and follow links to the affected emails. Missing subjects and senders load when opened.
 
 ## First installation
@@ -86,7 +86,7 @@ This client uses `chrome.identity.getAuthToken` with the **Chrome Extension** OA
 4. Gmail displays the category title as a colored label. Dock tracks ownership with saved label IDs. Refresh Gmail after a run if label changes are not visible.
 5. Category tabs open Gmail's native label views. Matching accounts keep the current Gmail page. Other accounts use account-qualified links.
 6. Gmail handles message display, conversation grouping, pagination, selection, and email actions. Dock does not fetch email details when a category opens.
-7. Native Gmail controls retain their behavior. Tabs wrap when needed. Unrecognized toolbar layouts place controls in a separate row above the categories.
+7. Native Gmail controls retain their behavior. Categories stay in one row and scroll horizontally when needed. Unrecognized toolbar layouts place controls above the categories.
 8. **× → Yes** removes the category and its Gmail label. Emails and unrelated labels remain. A future manual run can categorize those emails again.
 9. Label names refresh once when Dock loads and after connection or import. Saved IDs identify legacy labels with hashed names.
 10. The Inbox shortcut, Back, and Forward use Gmail navigation. Dock tabs remain available on label lists.
@@ -104,7 +104,7 @@ Progress and classification decisions are checkpointed before label changes. Gma
 
 Use **Stop** to stop a run. Already completed labels remain. With an unfinished run, the resume checkbox defaults on: pressing **Categorize emails** retries unfinished/failed messages while retaining completed work. Clear that checkbox to start a fresh window; a fresh run can recategorize previously labeled messages using the current descriptions. Changing a title/description alone does not classify mail.
 
-This private prototype supports up to 50 categories and windows of 1–365 days, with a maximum of 50,000 discovered messages per run. Very large inputs fail visibly instead of being silently truncated: a decoded email body over 60,000 characters, an oversized category set/request, or Jev's model token limit can produce a failed item. Stop, shorten the scope or descriptions where appropriate, and retry. File attachments are not classified; Gmail's externally stored text-body parts are decoded.
+This private prototype supports up to 50 categories and windows of 0–100 days, with a maximum of 50,000 discovered messages per run. Very large inputs fail visibly instead of being silently truncated: a decoded email body over 60,000 characters, an oversized category set/request, or Jev's model token limit can produce a failed item. Stop, shorten the scope or descriptions where appropriate, and retry. File attachments are not classified; Gmail's externally stored text-body parts are decoded.
 
 ## Move categories from the old prototype
 

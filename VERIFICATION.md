@@ -22,6 +22,41 @@
 18. A synthetic Gmail 429 during overlapping reads persists the shared cooldown and blocks later requests. Stop reaches paused in under one second.
 19. All 16 fixture label updates preserve INBOX, UNREAD, and unrelated labels. No-match selects the owned Uncategorized label.
 
+## 0.4.13 Run counts beside progress
+
+1. The labeled and processed counts appear immediately after the progress bar and before Stop.
+2. The UI browser check passes for control order, spacing, pause, resume, and existing navigation.
+3. The production build and packaging pass. No unit tests were created or run.
+4. Screenshot: `test-results/ui-fixture/rate-limit.png`.
+
+## 0.4.12 Toolbar progress and day range
+
+1. The progress bar appears directly between the day slider and Stop. Counts remain beside Gmail usage.
+2. New runs accept whole numbers from 0 to 100 days in both the UI and backend.
+3. Browser checks pass for both endpoints, saved preferences, progress placement, and preservation of older 180-day runs.
+4. All 11 nested-toolbar layout scenarios pass. TypeScript, the production build, and packaging pass.
+5. Screenshot: `test-results/ui-fixture/rate-limit.png`. Layout evidence: `test-results/clipping/0.4.12-1790986076013/report.json`.
+6. No unit tests were created or run. Browser checks use synthetic content and do not alter live mail.
+
+## 0.4.11 Sidebar idle appearance
+
+1. The default divider line is hidden. The dark midpoint handle stays visible.
+2. Hover, dragging, and keyboard focus retain their blue indicator.
+3. All 17 existing sidebar browser scenarios pass. The idle screenshot confirms the requested appearance.
+4. The production build, packaging, and diff checks pass. No unit tests were created or run.
+5. Evidence: `test-results/sidebar/0.4.11-1790984841143/report.json`.
+
+## 0.4.10 Category editor mouse input
+
+1. The live 0.4.9 editor reproduced the bug: clicking Description left focus in Name.
+2. A synthetic Gmail row that cancels mousedown reproduced the same focus failure before the fix.
+3. Shadow roots now stop pointer and mouse events after Dock controls handle them, without cancelling browser defaults.
+4. `scripts/smoke.mjs` passes real mouse focus, keyboard typing, select choices, Save, Cancel, and saved values after reload.
+5. Dock mouse events stay isolated. Native Gmail category clicks still reach their own handlers.
+6. The reloaded live Gmail tab passed mouse focus for all four fields, Color selection, and Cancel. Check changes were discarded.
+7. TypeScript, the production build, packaging, and diff checks pass.
+8. No unit tests were created or run. No live mail or saved category settings changed during these checks.
+
 ## 0.4.9 Category setup and compact editor
 
 1. TypeScript, the production build, and packaging pass.
@@ -75,7 +110,7 @@
 4. Demo category deletion preserves sample messages under Uncategorized after reload.
 5. `scripts/ui-smoke.mjs` passes for native Gmail routes, account selection, keyboard controls, connection errors, progress, Stop, and resume.
 6. `scripts/clipping-smoke.mjs` passes all 43 layout scenarios with no page errors or unexpected requests.
-7. The mobile preview screenshot retains wrapped categories and controls without horizontal overflow.
+7. The mobile preview keeps categories in one horizontally scrolling row without page overflow.
 8. An isolated copy of the built extension passes eight categorization checks through actual `dock:api` messages.
 9. The synthetic five-message run produces two successes, one retained-decision failure, and two skips.
 10. Multipart decoding preserves text, decodes HTML and external text bodies, and excludes file attachments.

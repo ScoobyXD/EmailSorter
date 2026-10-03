@@ -14,4 +14,5 @@
 12. Home selects the minimum width. End selects the largest width that leaves space for the message area.
 13. Escape cancels an active drag and retains the previous saved width.
 14. `node scripts/sidebar-smoke.mjs` checks the built extension in isolated Chromium with synthetic Gmail content.
-15. Hover, dragging, and keyboard focus show a blue edge. Pointer exit after dragging restores the gray edge.
+15. At rest, only the small dark handle appears in the middle. The full-height line is hidden.
+16. Hover, dragging, and keyboard focus show a blue edge. Pointer exit after dragging hides the edge again.

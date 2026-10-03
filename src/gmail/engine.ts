@@ -1,5 +1,5 @@
 import { decodedBody, header, type GmailFullMessage } from './mime';
-import { archiveRun, COLORS, initialState, isStarterCategory, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
+import { archiveRun, clampDaysBack, COLORS, DAYS_BACK_MAX, DAYS_BACK_MIN, initialState, isStarterCategory, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
 import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type RunTimings, type TimingStage, type EmailReference } from './protocol';
 import { HELPER_CONCURRENCY, HELPER_REQUESTS_PER_MINUTE, HELPER_RATE_WINDOW_MS, HELPER_RATE_RESET_HEADER, type HelperRateLimit, type ClassificationTiming } from '../../helper/src/protocol';
 import { GMAIL_QUOTA_METHODS } from './quota';
@@ -176,6 +176,8 @@ export class GmailEngine {
   }
   private async snapshot() {
     await this.update((state) => {
+      // Limit the next-run preference without changing any saved run window.
+      state.daysBack = clampDaysBack(state.daysBack);
       if (state.run?.id === this.checkpointFailure?.runId && this.checkpointFailure) {
         state.run!.status = 'failed';
         state.run!.error = `Progress could not be saved. Resume after storage is available. ${this.checkpointFailure.error}`;
@@ -186,7 +188,7 @@ export class GmailEngine {
         state.run!.updatedAt = Date.now();
         if (state.run!.timings) state.run!.timings.complete = false;
       }
-    }, (state) => active(state.run) && (state.run!.owner !== this.owner || state.run!.id === this.checkpointFailure?.runId));
+    }, (state) => state.daysBack !== clampDaysBack(state.daysBack) || (active(state.run) && (state.run!.owner !== this.owner || state.run!.id === this.checkpointFailure?.runId)));
     const state = await this.read();
     const snapshot = publicState(state, this.deps.oauthConfigured);
     if (this.timing && snapshot.run?.id === this.timing.runId) snapshot.run.timings = this.currentTimings();
@@ -238,7 +240,7 @@ export class GmailEngine {
     } catch (error) { return { ok: false, error: errorText(error) }; }
   }
   private validateDays(days: number): void {
-    if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Choose a days-back window from 1 to 365.');
+    if (!Number.isInteger(days) || days < DAYS_BACK_MIN || days > DAYS_BACK_MAX) throw new Error(`Choose a days-back window from ${DAYS_BACK_MIN} to ${DAYS_BACK_MAX}.`);
   }
   private async importCategories(json: string): Promise<void> {
     if (typeof json !== 'string' || json.length > 150000) throw new Error('Paste category JSON under 150 KB.');

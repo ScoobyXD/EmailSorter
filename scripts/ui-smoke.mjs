@@ -29,6 +29,23 @@ try {
   expect(await page.evaluate(() => window.fixture.commands)).toEqual(['state', 'refreshLabels']);
   await expect(page.locator('#fixture-native-mail')).toBeVisible();
   await expect(page.locator('#fixture-custom-view')).toBeHidden();
+  const daysSlider = page.getByRole('slider', { name: 'Days back' });
+  const daysOutput = page.locator('.dock-days output');
+  await expect(daysSlider).toHaveAttribute('min', '0');
+  await expect(daysSlider).toHaveAttribute('max', '100');
+  await expect(daysSlider).toHaveValue('30');
+  await daysSlider.press('Home');
+  await expect(daysSlider).toHaveValue('0');
+  await expect(daysOutput).toHaveText('0');
+  await expect.poll(() => page.evaluate(() => window.fixture.state.daysBack)).toBe(0);
+  await daysSlider.press('ArrowLeft');
+  await expect(daysSlider).toHaveValue('0');
+  await daysSlider.press('End');
+  await expect(daysSlider).toHaveValue('100');
+  await expect(daysOutput).toHaveText('100');
+  await expect.poll(() => page.evaluate(() => window.fixture.state.daysBack)).toBe(100);
+  await daysSlider.press('ArrowRight');
+  await expect(daysSlider).toHaveValue('100');
 
   await page.getByRole('button', { name: 'Connection', exact: true }).click();
   await page.getByRole('button', { name: 'Reconnect Gmail', exact: true }).click();
@@ -37,6 +54,8 @@ try {
   await page.getByRole('button', { name: 'Categorize emails', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.fixture.starts)).toBe(1);
+  expect(await page.evaluate(() => window.fixture.state.run.daysBack)).toBe(100);
+  await checkProgressPlacement(page);
   await expect(page.getByRole('button', { name: 'Edit Home repair' })).toBeDisabled();
   await expect(page.getByRole('slider', { name: 'Days back' })).toBeDisabled();
   await page.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 1, succeeded: 1 }); });
@@ -44,24 +63,74 @@ try {
   await page.evaluate(() => { window.fixture.state.run.retryAt = Date.now() + 60000; });
   await expect(page.getByText(/1 labeled · Retry in \d+s/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+  await checkProgressPlacement(page);
   await page.screenshot({ path: path.join(directory, 'rate-limit.png'), fullPage: true });
+  // Older saved runs retain their original scope even though new runs stop at 100 days.
+  await page.evaluate(() => { window.fixture.state.run.daysBack = 180; });
+  await expect(daysOutput).toHaveText('180');
+  await expect(daysSlider).toHaveValue('100');
+  await expect(daysSlider).toHaveAttribute('aria-valuetext', /180/);
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.getByText('1 labeled · 1/2 processed · Stopped', { exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Resume unfinished', exact: true })).toBeChecked();
+  await expect(daysOutput).toHaveText('180');
+  await expect(daysSlider).toBeDisabled();
+  await page.getByRole('checkbox', { name: 'Resume unfinished', exact: true }).uncheck();
+  await expect(daysSlider).toBeEnabled();
+  await expect(daysOutput).toHaveText('100');
+  await daysSlider.press('Home');
+  await expect(daysOutput).toHaveText('0');
+  await expect.poll(() => page.evaluate(() => window.fixture.state.daysBack)).toBe(0);
+  await page.getByRole('checkbox', { name: 'Resume unfinished', exact: true }).check();
+  await expect(daysOutput).toHaveText('180');
+  await expect(daysSlider).toBeDisabled();
+  await expect(daysSlider).toHaveValue('100');
   await page.evaluate(() => { delete window.fixture.state.run.retryAt; });
   expect(await page.evaluate(() => window.fixture.stops)).toBe(1);
   await page.getByRole('button', { name: 'Categorize emails', exact: true }).click();
   expect(await page.evaluate(() => window.fixture.resumes)).toBe(1);
   expect(await page.evaluate(() => window.fixture.starts)).toBe(1);
+  expect(await page.evaluate(() => window.fixture.state.run.daysBack)).toBe(180);
+  await expect(daysOutput).toHaveText('180');
+  await checkProgressPlacement(page);
   await page.evaluate(() => { Object.assign(window.fixture.state.run, { processed: 2, succeeded: 2, status: 'completed' }); });
   await expect(page.getByText('2 labeled · Done', { exact: true })).toBeVisible();
+  await expect(daysOutput).toHaveText('0');
   await page.screenshot({ path: path.join(directory, 'completed.png'), fullPage: true });
   await checkGmailUsage(page, directory);
   await checkGmailNavigation(browser, fixtureHtml);
   expect(errors).toEqual([]); expect(unexpected).toEqual([]);
-  console.log(JSON.stringify({ result: 'PASS', checks: ['current Gmail label names refresh once on load; native mail stays visible without a custom list', 'category, Uncategorized, Inbox and browser Back navigate without per-click API calls', 'pointer, Enter and arrow-key category controls preserve the verified account and current document', 'fresh label page, native label rename, reserved characters and missing labels', 'mismatch or unverified browser account uses an account-qualified Gmail URL', 'disconnected categories open Connection; label-refresh and OAuth errors remain visible', 'no classification before manual click, progress, disabled edits, Stop and explicit resume', 'Gmail timing uses elapsed rate despite overlapping stages, marks partial and legacy data, handles zero elapsed time, and fits narrow dialogs', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', checks: ['current Gmail label names refresh once on load; native mail stays visible without a custom list', 'keyboard range endpoints persist 0 and 100 days without crossing either limit', 'toolbar order is days slider, progress bar, labeled/processed counts, Stop, then Gmail usage in DOM order and screen geometry', 'saved 180-day runs keep their scope during active work, pause and resume; new runs retain the 0–100 preference', 'category, Uncategorized, Inbox and browser Back navigate without per-click API calls', 'pointer, Enter and arrow-key category controls preserve the verified account and current document', 'fresh label page, native label rename, reserved characters and missing labels', 'mismatch or unverified browser account uses an account-qualified Gmail URL', 'disconnected categories open Connection; label-refresh and OAuth errors remain visible', 'no classification before manual click, progress, disabled edits, Stop and explicit resume', 'Gmail timing uses elapsed rate despite overlapping stages, marks partial and legacy data, handles zero elapsed time, and fits narrow dialogs', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
 } catch (error) { console.error(JSON.stringify({ errors, unexpected })); throw error; }
 finally { await context.close(); await browser.close(); }
+
+async function checkProgressPlacement(page) {
+  const progress = page.getByRole('progressbar', { name: 'Categorization progress' });
+  await expect(progress).toBeVisible();
+  const layout = await progress.evaluate(element => {
+    const group = element.closest('.dock-run-progress');
+    const days = group?.previousElementSibling;
+    const counts = group?.nextElementSibling;
+    const stop = counts?.nextElementSibling;
+    const usage = stop?.nextElementSibling;
+    if (!group || !days || !counts || !stop || !usage) return null;
+    const rect = node => { const box = node.getBoundingClientRect(); return { left: box.left, right: box.right, middle: box.top + box.height / 2 }; };
+    return { followsDays: days.matches('.dock-days'), precedesCounts: counts.matches('.dock-run-status') && /\d+ labeled/.test(counts.textContent), precedesStop: stop.matches('button') && stop.textContent === 'Stop', precedesUsage: usage.matches('button') && usage.textContent === 'Gmail usage', days: rect(days), progress: rect(group), counts: rect(counts), stop: rect(stop), usage: rect(usage) };
+  });
+  expect(layout).not.toBeNull();
+  expect(layout.followsDays).toBe(true);
+  expect(layout.precedesCounts).toBe(true);
+  expect(layout.precedesStop).toBe(true);
+  expect(layout.precedesUsage).toBe(true);
+  expect(layout.progress.left).toBeGreaterThanOrEqual(layout.days.right - 1);
+  expect(layout.progress.right).toBeLessThanOrEqual(layout.counts.left + 1);
+  expect(layout.counts.right).toBeLessThanOrEqual(layout.stop.left + 1);
+  expect(layout.stop.right).toBeLessThanOrEqual(layout.usage.left + 1);
+  expect(Math.abs(layout.progress.middle - layout.days.middle)).toBeLessThanOrEqual(2);
+  expect(Math.abs(layout.progress.middle - layout.counts.middle)).toBeLessThanOrEqual(2);
+  expect(Math.abs(layout.progress.middle - layout.stop.middle)).toBeLessThanOrEqual(2);
+  expect(Math.abs(layout.progress.middle - layout.usage.middle)).toBeLessThanOrEqual(2);
+}
 
 async function checkGmailUsage(page, directory) {
   const button = page.getByRole('button', { name: 'Gmail usage', exact: true });
@@ -164,7 +233,7 @@ async function checkGmailNavigation(browser, body) {
     const url = request.url();
     if (request.isNavigationRequest() && permittedLoads.delete(url)) {
       documentRequests.push(url);
-      await route.fulfill({ status: 200, contentType: 'text/html', body });
+      await route.fulfill({ status: 200, contentType: 'text/html', body: body.replace('<body>', '<body><nav aria-label="Native Gmail navigation"><a href="#inbox">Inbox</a></nav>') });
     } else {
       failures.push(`Unexpected request: ${url}`);
       await route.abort();
@@ -174,7 +243,7 @@ async function checkGmailNavigation(browser, body) {
   gmail.on('pageerror', error => failures.push(error.message));
   const category = gmail.getByRole('tab', { name: 'Home repair', exact: true });
   const uncategorized = gmail.getByRole('tab', { name: 'Uncategorized', exact: true });
-  const inbox = gmail.getByRole('button', { name: 'Back to Gmail inbox', exact: true });
+  const inbox = gmail.getByRole('link', { name: 'Inbox', exact: true });
   const labelHash = '#label/Dock%2FHousehold+%2B+repair+%5Bhome-repair%5D';
   const uncategorizedHash = '#label/Dock%2FUncategorized';
   const accountUrl = `https://mail.google.com/mail/u/?authuser=ui-fixture%40example.test${labelHash}`;
@@ -182,6 +251,7 @@ async function checkGmailNavigation(browser, body) {
     permittedLoads.add(url.split('#')[0]);
     await gmail.goto(url);
     await expect(category).toBeEnabled();
+    await expect(gmail.getByRole('button', { name: 'Back to Gmail inbox', exact: true })).toHaveCount(0);
   }
   async function profile(email, attribute = 'aria-label') {
     await gmail.evaluate(({ email, attribute }) => {

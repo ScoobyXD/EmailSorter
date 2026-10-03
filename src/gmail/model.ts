@@ -36,6 +36,11 @@ export interface StoredState extends Omit<DockState, 'oauthConfigured' | 'helper
   run?: StoredRun;
 }
 export const COLORS = ['#c9daf8', '#e4d7f5', '#fef1d1', '#fcdee8', '#b9e4d0', '#ffe6c7', '#e7e7e7'];
+export const DAYS_BACK_MIN = 0;
+export const DAYS_BACK_MAX = 100;
+export function clampDaysBack(days: number): number {
+  return Math.max(DAYS_BACK_MIN, Math.min(DAYS_BACK_MAX, days));
+}
 export const DEFAULT_CATEGORY_TITLE = 'Edit Me!';
 const STARTER_CATEGORY_IDS = ['starter-1', 'starter-2', 'starter-3'];
 

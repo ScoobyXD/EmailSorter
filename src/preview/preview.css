@@ -43,8 +43,8 @@ body { background: #f8fafd; color: #202124; font-family: Arial, Helvetica, sans-
 .mail-check { width: 15px; height: 15px; border: 1.5px solid #80868b; border-radius: 2px; display: inline-block; flex-shrink: 0; }
 .refresh-look { font-size: 24px; margin-left: 15px; }
 .mail-count { font-size: 12px; margin-left: auto; color: #5f6368; }
-.mail-category-row { --dock-tab-font-family: Arial, Helvetica, sans-serif; --dock-tab-font-size: 14px; --dock-tab-color: #444746; --dock-tab-active-color: #0b57d0; --dock-tab-height: 58px; --dock-tab-padding-x: 16px; display: flex; flex-wrap: wrap; align-items: stretch; align-content: flex-start; min-width: 0; flex-shrink: 0; border-bottom: 1px solid #dadce0; }
-.mail-custom-tabs { display: contents; }
+.mail-category-row { --dock-tab-font-family: Arial, Helvetica, sans-serif; --dock-tab-font-size: 14px; --dock-tab-color: #444746; --dock-tab-active-color: #0b57d0; --dock-tab-height: 58px; --dock-tab-padding-x: 16px; display: flex; flex-wrap: nowrap; align-items: stretch; min-width: 0; flex-shrink: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; border-bottom: 1px solid #dadce0; }
+.mail-custom-tabs { flex: 0 0 auto; inline-size: max-content; }
 .mail-native-tab { position: relative; display: inline-flex; align-items: center; gap: 10px; flex: 0 0 auto; height: 58px; max-width: 100%; padding: 0 16px; border: 0; background: #fff; color: #444746; font-size: 14px; font-weight: 400; white-space: nowrap; cursor: pointer; }
 .mail-native-tab svg { width: 18px; height: 18px; flex-shrink: 0; }
 .mail-native-tab:hover { background: #f2f4f7; }

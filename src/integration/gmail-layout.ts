@@ -94,7 +94,7 @@ function findNativeTabs(main: HTMLElement): NativeTabs | null {
     const first = tabs[0]!.getBoundingClientRect();
     // Exclude vertical utility rails without using localized category names.
     if (list.getAttribute('aria-orientation') === 'vertical') continue;
-    // Once attached, our responsive row may legitimately span several lines.
+    // Once attached, Dock owns the row layout.
     if (!list.querySelector(`[${OWNED}="native"]`) && tabs.some((tab) => Math.abs(tab.getBoundingClientRect().top - first.top) > 12)) continue;
 
     // Gmail versions can put tablist on the table, its row, or an outer div.
@@ -309,9 +309,8 @@ export function attachGmailLayout({ tabsHost, controlsHost, onNativeSelect }: Gm
       slot = document.createElement(native?.table ? 'td' : 'div');
       slot.setAttribute(OWNED, mode);
       slot.className = 'dock-gmail-tabs-slot';
-      Object.assign(slot.style, { display: 'block', boxSizing: 'border-box', padding: '0', verticalAlign: 'middle', minWidth: '0', maxWidth: '100%', overflow: 'visible' });
-      // Gmail's generic TD rule can otherwise fix our own cell to one row,
-      // even when its shadow-root categories need several lines.
+      Object.assign(slot.style, { display: 'block', boxSizing: 'border-box', padding: '0', verticalAlign: 'middle', minWidth: '0', width: mode === 'native' ? 'max-content' : '100%', maxWidth: mode === 'native' ? 'none' : '100%', flex: '0 0 auto', overflow: 'visible' });
+      // Let the category buttons determine the height instead of Gmail's TD rule.
       slot.style.setProperty('height', 'auto', 'important');
       slot.style.setProperty('max-height', 'none', 'important');
       Object.assign(tabsHost.style, { display: 'block', width: '100%', minWidth: '0', maxWidth: '100%', boxSizing: 'border-box', overflow: 'visible' });
@@ -348,12 +347,9 @@ export function attachGmailLayout({ tabsHost, controlsHost, onNativeSelect }: Gm
       if (activeBoundary && activeBoundary !== boundary.branch) resetTabs();
       const width = native.list.getBoundingClientRect().width;
       const nativeWidth = Math.min(156, Math.max(128, Math.floor(width / (native.items.length + 1))));
-      const available = Math.floor(width - native.items.length * nativeWidth);
-      const stacked = available < 740;
       mount(native.row, native.items[0]!, 'native', native);
       activeBoundary = boundary.branch;
-      // Keep the original DOM and listeners; only change its layout model so
-      // categories can wrap naturally rather than introducing any scroll strip.
+      // Keep the original DOM and listeners in one horizontally scrolling row.
       if (native.table) {
         patch(native.table, { display: 'block', width: '100%', height: 'auto', 'max-height': 'none', 'table-layout': 'auto' });
         if (native.row.parentElement && native.row.parentElement !== native.table) {
@@ -361,23 +357,20 @@ export function attachGmailLayout({ tabsHost, controlsHost, onNativeSelect }: Gm
         }
       }
       patch(native.row, {
-        display: 'flex', 'flex-wrap': 'wrap', 'align-items': 'stretch', width: '100%',
+        display: 'flex', 'flex-wrap': 'nowrap', 'align-items': 'stretch', width: '100%',
         height: 'auto', 'max-height': 'none', 'box-sizing': 'border-box',
+        'overflow-x': 'auto', 'overflow-y': 'hidden', 'overscroll-behavior-x': 'contain',
+        'scrollbar-width': 'thin',
       });
       for (const item of native.items) {
         patch(item, {
-          display: 'block', 'box-sizing': 'border-box', flex: `0 1 ${nativeWidth}px`,
+          display: 'block', 'box-sizing': 'border-box', flex: `0 0 ${nativeWidth}px`,
           width: `${nativeWidth}px`, 'min-width': '0', 'max-width': '100%', order: '0',
         });
       }
       for (const tab of native.tabs) {
         patch(tab, { width: '100%', 'max-width': '100%', 'box-sizing': 'border-box' });
       }
-      if (slot) Object.assign(slot.style, {
-        width: stacked ? '100%' : `${available}px`,
-        flex: stacked ? '1 1 100%' : '1 1 0px',
-        order: stacked ? '1' : '0',
-      });
       // Only tab-only wrappers are allowed to grow. Leave the main/mail
       // scrollports and their overflow behavior untouched; restore on detach.
       for (const wrapper of boundary.wrappers) {

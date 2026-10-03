@@ -1,0 +1,471 @@
+Levels.io Infrastructure: How Pieter Levels Handles Billions of Requests Cheaply
+
+The surprising part is that the “4.15B requests” number sounds like hyperscale, but averaged across a year it’s only about 132 requests/sec. Even allowing for large traffic spikes, that is completely plausible on a few well-sized VPSes if most requests are cheap, static, cached, or efficiently served.
+
+Levels reported roughly:
+- 4.15 billion HTTP requests per year
+- 300 million visitors per year
+- $2,932 per year in VPS costs
+- About $244 per month in server costs
+
+He also said those servers typically use only around 10% of their resources.
+
+1. Translating 4.15 Billion Requests Into Actual Load
+
+4.15 billion requests per year works out to roughly:
+- 345.8 million per month
+- 11.37 million per day
+- 474,000 per hour
+- 7,900 per minute
+- About 132 requests per second on average
+
+That last number is the key.
+
+132 requests per second is not remotely crazy for Nginx on modern hardware. A single decent server can handle vastly more than that if the requests are lightweight.
+
+Traffic is not evenly distributed, so his peaks will be much higher, but Levels has historically said even a tiny 4 GB Linode running Nginx survived bursts of 1,000+ users per second from Hacker News and Product Hunt.
+
+A simplified version of his infrastructure looks something like this:
+
+Internet
+   |
+   v
+Cloudflare
+DNS / CDN / security
+   |
+   v
+Cloudflare Tunnel
+   |
+   v
+Hetzner VPSes
+   |
+   +-- Nginx
+   +-- PHP / Node / Python
+   +-- Database
+   +-- Redis
+   +-- Cron jobs / workers
+   +-- Image/video/scraping services
+   |
+   +--> Cloudflare R2
+   +--> Backblaze B2
+
+Private admin access:
+Laptop -> Tailscale -> VPS
+
+This is a reconstruction from his public posts, not a claim that every product uses precisely the same topology.
+
+2. Hetzner Instead of AWS Does a Lot of the Work
+
+His current server provider is Hetzner.
+
+This changes the economics enormously.
+
+AWS tends to decompose infrastructure into separately metered products:
+
+EC2
++ EBS
++ NAT Gateway
++ ALB
++ RDS
++ CloudWatch
++ data transfer
++ S3
++ snapshots
++ Route53
++ other managed services
+
+Levels’ philosophy is much closer to:
+
+One large Linux computer:
+- Nginx
+- Databases
+- App processes
+- Cron jobs
+- Redis
+- Image processing
+- Video serving
+- Screenshot services
+- Scrapers
+- Monitoring
+- Miscellaneous internal tools
+
+You rent the machine, then use the machine.
+
+That sounds obvious, but modern cloud architecture often means paying multiple services to abstract away pieces of that same computer.
+
+3. Nginx Is His Traffic Workhorse
+
+This has been consistent for more than a decade.
+
+His original stack was broadly:
+
+Ubuntu -> Nginx -> PHP-FPM -> PHP/Node
+
+He liked Nginx because it was extremely fast with little tuning.
+
+He still uses Nginx now.
+
+For example, in 2026 he said he replaced Cloudflare Streaming with his own Nginx VPS video streaming.
+
+That is revealing.
+
+Instead of thinking:
+“Streaming video means I need a specialized video infrastructure company.”
+
+The Levels approach is closer to:
+“It’s bytes going over HTTP. Nginx can send bytes.”
+
+That is basically his infrastructure philosophy in one sentence.
+
+4. Cloudflare Absorbs a Lot of the Internet-Facing Complexity
+
+Cloudflare is one of the most important parts of his setup.
+
+His origin servers are not simply exposed directly to the public internet.
+
+He described moving to Cloudflare Tunnel.
+
+Old model:
+
+Internet
+   |
+Cloudflare
+   |
+Hetzner firewall allows Cloudflare IPs
+   |
+Nginx
+
+New model:
+
+User
+   |
+Cloudflare
+   |
+Cloudflare Tunnel
+   |
+Hetzner VPS
+
+The VPS initiates the tunnel outward.
+
+That means he can block normal inbound public traffic at the Hetzner firewall.
+
+Public traffic goes through Cloudflare.
+
+Private administrative access can go through Tailscale.
+
+So conceptually:
+
+Public traffic:
+Browser -> Cloudflare -> Cloudflare Tunnel -> Nginx
+
+Admin traffic:
+Levels’ laptop -> Tailscale -> VPS
+
+That is a very clean architecture.
+
+5. 4.15 Billion Requests Does Not Mean 4.15 Billion Expensive App Executions
+
+This is an important caveat.
+
+An HTTP request can be:
+
+GET /image.jpg
+GET /style.css
+GET /app.js
+GET /favicon.ico
+GET /api/cities
+GET /
+
+All of those count as requests.
+
+But they do not cost the same amount to serve.
+
+A request served from Cloudflare cache may barely touch his infrastructure.
+
+A static asset served by Nginx is extremely cheap.
+
+A cached HTML response is cheap.
+
+A simple PHP request may be moderately cheap.
+
+An AI inference request is dramatically more expensive.
+
+So you should not read “4.15 billion requests” as “4.15 billion database-backed serverless executions.”
+
+That is probably one of the main reasons the headline number sounds more extreme than the actual server workload.
+
+Back in 2015, Nomad List was already serving around 100 million assets per month because a single page could contain a very large number of assets.
+
+That shows how request counts can become enormous without requiring hyperscale backend compute.
+
+6. He Caches Aggressively
+
+Caching is another major part of the system.
+
+When Nomad List became expensive to regenerate dynamically, Levels started caching calculated city data instead of recomputing everything on every page load.
+
+His newer image resizing service also uses Node.js Sharp plus Redis.
+
+Conceptually:
+
+Request
+   |
+Is result cached?
+   |
+   +-- Yes -> Return immediately
+   |
+   +-- No
+        |
+        Compute
+        |
+        Store result
+        |
+        Return
+
+For image resizing:
+
+/image/photo.jpg?w=500
+   |
+Redis lookup
+   |
+   +-- Exists -> Serve cached output
+   |
+   +-- Missing
+        |
+        Sharp resizes image
+        |
+        Cache output
+        |
+        Serve result
+
+The expensive operation does not need to happen over and over.
+
+7. He Is Comfortable Running Many Services on the Same Machines
+
+This is probably the philosophical difference between a typical AWS architecture and the Levels architecture.
+
+A conventional startup might use:
+
+Frontend -> Vercel
+API -> ECS
+Database -> RDS
+Cache -> ElastiCache
+Load balancer -> ALB
+Files -> S3
+Logs -> CloudWatch
+Queue -> SQS
+Images -> Imgix
+Video -> Mux
+Monitoring -> New Relic
+
+Levels is much more likely to see:
+
+Hetzner VPS
+- Nginx
+- PHP
+- Node
+- Python
+- Redis
+- Database
+- Cron
+- Image resizer
+- Video server
+- Screenshot server
+- Scraper
+- Monitoring scripts
+
+Then he pulls something out into a specialized external service only when there is a strong reason.
+
+That is almost the reverse of the way AWS encourages you to design software.
+
+8. He Does Not Self-Host Everything
+
+This is important.
+
+Levels is not dogmatic.
+
+He keeps external infrastructure where it genuinely makes operational or economic sense.
+
+Examples he has discussed include:
+
+Cloudflare:
+- Domains
+- Outbound email
+- R2 storage
+- Security / CDN / tunneling
+
+Backblaze B2:
+- Backups
+
+Hetzner:
+- VPSes
+
+xAI:
+- LLM/API workloads
+
+GPU providers such as FAL:
+- Photo AI inference
+
+He has explicitly said specialized GPU providers can be cheaper and easier than running GPU servers himself.
+
+That suggests a useful principle:
+
+Self-host commodity CPU, networking, storage, scraping, image manipulation, and general application workloads when they are straightforward.
+
+Outsource specialized infrastructure when the external provider has genuine economies of scale or reduces major operational complexity.
+
+GPU orchestration is a good example.
+
+9. His Storage Strategy Is Also Cheap
+
+He has discussed using:
+
+Cloudflare R2:
+- Object storage
+- Photo AI assets
+- Litestream database backups
+
+Backblaze B2:
+- Additional backups
+
+So the architecture is not simply “everything on one VPS disk.”
+
+A simplified model is:
+
+VPS
+   |
+   +-- Local disk
+   |
+   +-- Backups -> R2
+   |
+   +-- Backups -> B2
+
+That is much safer than operating a single machine with no offsite backup strategy.
+
+10. He Has Been Scaling This Way for Years
+
+This architecture is not something that suddenly became possible in 2026.
+
+In 2019, Levels reported roughly:
+- $1 million annual revenue
+- Nomad List + Remote OK
+- 208 cron jobs
+- 11,996 customers
+- 740 payments per month
+
+running on essentially one VPS.
+
+In 2020, he described:
+- Around 1.4 billion requests per year
+- More than 1 million users per month
+
+while still using a very simple Nginx/PHP VPS architecture.
+
+The server fleet has grown since then, but the philosophy has remained remarkably consistent.
+
+11. Why a Small AWS App Can Cost $500 Per Month With Barely Any Users
+
+AWS frequently charges for provisioned architecture rather than meaningful customer activity.
+
+A small system might look like:
+
+RDS: $80
+ECS/EC2: $80
+Load balancer: $25
+NAT Gateway: $40-$100+
+EBS: $20
+CloudWatch: $20
+S3 / transfer: $20
+Miscellaneous: $20-$100
+
+Total: $300-$500+ per month
+
+You can have very few users and still incur most of those costs.
+
+A VPS pricing model is much simpler:
+
+“Here is a computer. It costs $X per month. Use as much of it as the hardware can handle.”
+
+If your app is only using 3% CPU, the cost does not increase because you have Redis, Nginx, a database, a cron process, and several app services running on that same box.
+
+With AWS, each of those components may become its own separately billed service.
+
+That is the economic model Levels is intentionally avoiding.
+
+12. His Servers Apparently Are Not Even Close to Full
+
+Levels has said his roughly $244/month VPS fleet runs at around 10% utilization.
+
+He even speculated that with further optimization he might be able to reduce his total server bill dramatically.
+
+That is his own rough estimate rather than an independent benchmark, so it should be treated cautiously.
+
+But directionally, it means he is deliberately overprovisioned.
+
+Instead of obsessively autoscaling and squeezing every percentage point of utilization out of expensive cloud infrastructure, he can simply buy cheap compute and leave plenty of headroom.
+
+The Levels.io Infrastructure Model
+
+A simplified architecture:
+
+                    CLOUDFLARE
+              CDN / DNS / security
+                      |
+                Secure tunnel
+                      |
+                      v
+              HETZNER VPS FLEET
+                      |
+        +-------------+-------------+
+        |             |             |
+      Nginx        App code       Workers
+        |         PHP/Node/etc.     Cron
+        |             |
+        |        +----+----+
+        |        |         |
+        |      Database   Redis
+        |
+   Static/video/files
+        |
+        +-------------> Cloudflare R2
+        |
+        +-------------> Backblaze B2
+
+Private administration:
+Laptop -> Tailscale -> Servers
+
+Specialized workloads:
+- LLMs -> xAI
+- GPUs -> providers such as FAL
+
+The Core Philosophy
+
+The simplest way to summarize the Levels approach is:
+
+“Don’t distribute your architecture until the workload forces you to distribute it.”
+
+Instead of beginning with:
+- Microservices
+- Managed databases
+- Managed cache
+- Managed queues
+- Managed image processing
+- Managed streaming
+- Managed monitoring
+- Managed scraping
+- Serverless functions
+- Multiple cloud products
+
+He starts with:
+- A Linux VPS
+- Nginx
+- A database
+- Redis when useful
+- Simple application processes
+- Cron jobs
+- Cloudflare
+- Proper backups
+
+Then complexity is added only when real scale, reliability, or operational needs justify it.
+
+That is why an infrastructure stack handling hundreds of millions of visitors can sometimes cost less than a lightly used startup architecture on AWS.

@@ -10,6 +10,7 @@ User Preferences:
 6. Do not create things that already exist in our code base.
 7. Keep a unified frontend and backend api structure
 8. Do not create duplicate or similar data structures for the exact or similar thing.
+9. When you merge to main please make sure the install files are updates so I can update the browser extension
 
 Jev rules:
 1. Don't put 1 question per call. Bunch them up.

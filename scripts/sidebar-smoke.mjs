@@ -104,7 +104,7 @@ try {
   await handle.hover();
   await expect.poll(handleStyle).toMatchObject({ color: 'rgb(11, 87, 208)', opacity: '1', hovered: true });
   await page.mouse.move(1100, 500);
-  await expect.poll(handleStyle).toMatchObject({ color: 'rgb(116, 119, 117)', opacity: '0.25', outline: 'none', hovered: false });
+  await expect.poll(handleStyle).toMatchObject({ color: 'rgb(116, 119, 117)', opacity: '0', outline: 'none', hovered: false });
   await page.getByRole('link', { name: 'Dock/SaaS updates and announcements', exact: true }).focus();
   await page.keyboard.press('Tab');
   await expect(handle).toBeFocused();
@@ -115,7 +115,7 @@ try {
   await checkWidth(420);
   await expect.poll(savedWidth).toBe(420);
   await page.mouse.move(1100, 500);
-  await expect.poll(handleStyle).toMatchObject({ color: 'rgb(116, 119, 117)', opacity: '0.25', outline: 'none', focused: true, hovered: false });
+  await expect.poll(handleStyle).toMatchObject({ color: 'rgb(116, 119, 117)', opacity: '0', outline: 'none', focused: true, hovered: false });
   await record('drag-wider', true);
   await handle.press('ArrowRight');
   await checkWidth(430);

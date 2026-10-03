@@ -1,13 +1,13 @@
 .dock-workspace-controls, .dock-workspace-controls *, .dock-dialog, .dock-dialog *, .dock-native-view, .dock-native-view * { box-sizing: border-box; }
 .dock-workspace-controls { display: flow-root; min-width: 0; width: 100%; font: 14px/1.45 var(--dock-tab-font-family, Arial, sans-serif); color: #444746; background: #fff; }
-.dock-native-tabs { display: flex; flex-wrap: wrap; align-items: stretch; min-width: 0; width: 100%; }
-.dock-native-tab-item { display: flex; flex: 0 1 auto; min-width: 0; max-width: 100%; position: relative; align-items: stretch; color: var(--dock-tab-color, #444746); font-family: var(--dock-tab-font-family, "Google Sans", Roboto, Arial, sans-serif); font-size: var(--dock-tab-font-size, 14px); background: transparent; }
+.dock-native-tabs { display: flex; flex-wrap: nowrap; align-items: stretch; min-width: 0; width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.dock-native-tab-item { display: flex; flex: 0 0 auto; min-width: 0; position: relative; align-items: stretch; color: var(--dock-tab-color, #444746); font-family: var(--dock-tab-font-family, "Google Sans", Roboto, Arial, sans-serif); font-size: var(--dock-tab-font-size, 14px); background: transparent; }
 .dock-native-tab-item.is-active { color: var(--dock-tab-active-color, #0b57d0); }
 .dock-native-tab-item.is-active::after { content: ""; position: absolute; bottom: 0; left: 12px; right: 12px; height: 3px; border-radius: 3px 3px 0 0; background: var(--dock-tab-active-color, #0b57d0); pointer-events: none; }
 .dock-native-tab-item .dock-native-tab, .dock-native-add { appearance: none; font: inherit; line-height: 1.4; color: inherit; border: 0; border-radius: 0; padding: 0 12px; margin: 0; background: transparent; cursor: pointer; min-height: var(--dock-tab-height, 58px); display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
 .dock-native-tab-item .dock-native-tab { min-width: 0; max-width: 100%; padding-inline-end: 58px; font-weight: var(--dock-tab-font-weight, 400); line-height: var(--dock-tab-line-height, 20px); }
 .dock-native-tab-item.is-system .dock-native-tab { padding-inline-end: 12px; }
-.dock-native-tab-item .dock-native-tab > span { overflow-wrap: anywhere; }
+.dock-native-tab-item .dock-native-tab > span { white-space: nowrap; }
 .dock-native-tab svg, .dock-native-add svg { display: block; flex-shrink: 0; width: 18px; height: 18px; color: inherit; }
 .dock-native-tab .dock-category-icon { width: 22px; height: 22px; padding: 2px; border-radius: 4px; color: #444746; }
 .dock-native-tab-item .dock-native-tab:hover, .dock-native-add:hover { background: rgba(60, 64, 67, .04); }
@@ -36,7 +36,7 @@
 .dock-demo-note { color: #70757a; font-size: 12px; }
 .dock-run-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-inline-size: 0; font: 12px/1.4 Arial, sans-serif; }
 .dock-run-summary { overflow-wrap: anywhere; }
-.dock-run-status progress { inline-size: 70px; block-size: 6px; accent-color: #0b57d0; }
+.dock-run-progress { flex: 0 0 70px; inline-size: 70px; block-size: 6px; accent-color: #0b57d0; }
 .dock-toolbar-error { flex: 1 1 180px; min-inline-size: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .dock-dialog { position: fixed; inset: 0; border: 1px solid #dadce0; border-radius: 12px; padding: 25px; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); margin: auto; background: #fff; color: #202124; box-shadow: 0 10px 40px #20212433; font: 14px/1.5 Arial, sans-serif; overflow: auto; }
 .dock-dialog::backdrop { background: #20212450; }

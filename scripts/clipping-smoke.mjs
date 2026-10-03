@@ -52,6 +52,7 @@ function nestedToolbarFixture(scrollOnLoad = false) {
 const context = await chromium.launchPersistentContext(path.join(artifacts, 'profile'), {
   executablePath: process.env.CHROMIUM_EXECUTABLE || undefined,
   channel: 'chromium', headless: true, viewport: { width: 1440, height: 1000 },
+  ignoreDefaultArgs: ['--hide-scrollbars'],
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
 });
 context.on('page', page => page.on('pageerror', error => pageErrors.push(error.message)));
@@ -125,6 +126,7 @@ async function assess(page, scenario) {
   for (const tab of await page.locator('.dock-native-tab').all()) targets.push([`tab:${await tab.getAttribute('aria-label')}`, tab]);
   expect(targets.filter(([name]) => name.startsWith('tab:')).length).toBe(6);
   for (const [name, locator] of targets) {
+    await locator.scrollIntoViewIfNeeded();
     controls[name] = await inspectControl(locator);
     if (!controls[name].fullHit) issues.push(`${scenario}: ${name} misses one or more center/corner hit tests`);
     if (controls[name].clipped) issues.push(`${scenario}: ${name} crosses a clipping ancestor`);
@@ -140,8 +142,25 @@ async function assess(page, scenario) {
     const primary = document.querySelector('[data-native=primary]').getBoundingClientRect();
     const actions = document.querySelector('.native-actions')?.getBoundingClientRect();
     const pagination = document.querySelector('.native-pagination')?.getBoundingClientRect();
-    return { controlsBottom: Math.max(...bottoms), mailTop: mail.top, mailBottom: mail.bottom, pageWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth, primaryUnchanged: window.originalPrimary === document.querySelector('[data-native=primary]'), nativeActionsUnchanged: !toolbar || window.originalNativeActions === document.querySelector('.native-actions'), placement: controlHost.dataset.dockToolbarPlacement, controlsInsideToolbar: Boolean(toolbar?.contains(controlHost)), controlsAboveTabs: controlBounds.bottom <= primary.top + 1, actionsOverlap: actions ? actions.right > controlBounds.left + 1 : false, paginationOverlap: pagination ? controlBounds.right > pagination.left + 1 : false, wrappers: ['tab-envelope','tab-frame','direct-native'].filter(id => document.getElementById(id)).map(id => { const element=document.getElementById(id), style=getComputedStyle(element), box=element.getBoundingClientRect(); return { id, top:box.top, bottom:box.bottom, height:box.height, cssHeight:style.height, maxHeight:style.maxHeight, overflow:style.overflow }; }) };
+    const tabsHost = document.querySelector('dock-inbox-tabs');
+    const customTabs = tabsHost.shadowRoot.querySelector('.dock-native-tabs');
+    const nativeSlot = tabsHost.closest('[data-dock-gmail-layout="native"]');
+    const categoryScrollport = nativeSlot?.parentElement ?? customTabs;
+    const categoryControls = [...(nativeSlot ? categoryScrollport.querySelectorAll('[role="tab"]') : []), ...customTabs.querySelectorAll('.dock-native-tab, .dock-native-add')];
+    const categoryTops = categoryControls.map(element => element.getBoundingClientRect().top);
+    const previousScroll = categoryScrollport.scrollLeft;
+    categoryScrollport.scrollLeft = categoryScrollport.scrollWidth;
+    const categoryCanScroll = categoryScrollport.scrollLeft > 0;
+    categoryScrollport.scrollLeft = previousScroll;
+    const categoryStyle = getComputedStyle(categoryScrollport);
+    const categories = { oneRow: Math.max(...categoryTops) - Math.min(...categoryTops) <= 2, overflowX: categoryStyle.overflowX, scrollbarWidth: categoryStyle.scrollbarWidth, overflows: categoryScrollport.scrollWidth > categoryScrollport.clientWidth + 1, canScroll: categoryCanScroll };
+    return { categories, controlsBottom: Math.max(...bottoms), mailTop: mail.top, mailBottom: mail.bottom, pageWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth, primaryUnchanged: window.originalPrimary === document.querySelector('[data-native=primary]'), nativeActionsUnchanged: !toolbar || window.originalNativeActions === document.querySelector('.native-actions'), placement: controlHost.dataset.dockToolbarPlacement, controlsInsideToolbar: Boolean(toolbar?.contains(controlHost)), controlsAboveTabs: controlBounds.bottom <= primary.top + 1, actionsOverlap: actions ? actions.right > controlBounds.left + 1 : false, paginationOverlap: pagination ? controlBounds.right > pagination.left + 1 : false, wrappers: ['tab-envelope','tab-frame','direct-native'].filter(id => document.getElementById(id)).map(id => { const element=document.getElementById(id), style=getComputedStyle(element), box=element.getBoundingClientRect(); return { id, top:box.top, bottom:box.bottom, height:box.height, cssHeight:style.height, maxHeight:style.maxHeight, overflow:style.overflow }; }) };
   });
+  if (!layout.categories.oneRow) issues.push(`${scenario}: category tabs or Add wrap to another row`);
+  if (!['auto', 'scroll'].includes(layout.categories.overflowX)) issues.push(`${scenario}: category strip does not allow horizontal scrolling`);
+  if (layout.categories.scrollbarWidth !== 'thin') issues.push(`${scenario}: category strip must use a thin scrollbar`);
+  if (layout.categories.overflows && !layout.categories.canScroll) issues.push(`${scenario}: overflowing categories cannot scroll horizontally`);
+  if (scenario.endsWith('-narrow') && !layout.categories.overflows) issues.push(`${scenario}: narrow category strip must overflow locally`);
   if (layout.mailTop < layout.controlsBottom - 1) issues.push(`${scenario}: mail starts at ${layout.mailTop} before controls end at ${layout.controlsBottom}`);
   if (layout.pageWidth > layout.viewportWidth + 1) issues.push(`${scenario}: horizontal page overflow`);
   if (!layout.primaryUnchanged) issues.push(`${scenario}: primary native node was replaced`);

@@ -6,7 +6,7 @@ import { GmailUsage } from './GmailUsage';
 import { RunErrors } from './RunErrors';
 import { useAnchoredPopover } from './useAnchoredPopover';
 import { UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type DockState } from '../gmail/protocol';
-import { COLORS, DEFAULT_CATEGORY_TITLE, isStarterCategory } from '../gmail/model';
+import { COLORS, DEFAULT_CATEGORY_TITLE, DAYS_BACK_MIN, DAYS_BACK_MAX, clampDaysBack, isStarterCategory } from '../gmail/model';
 import { canOpenGmailInPlace, getGmailLabelFromRoute, gmailLabelHash, openGmailRoute } from '../integration/gmail-navigation';
 import nativeStyles from './workspace.css?inline';
 
@@ -63,7 +63,7 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
   const run = live ? state.run : undefined;
   const running = run?.status === 'running' || run?.status === 'stopping';
   const canResume = run?.status === 'paused' || run?.status === 'failed' || (run?.status === 'completed' && run.failed > 0);
-  const scopeDays = canResume && resumeRun ? run!.daysBack : days;
+  const scopeDays = run && (running || (canResume && resumeRun)) ? run.daysBack : days;
   const incompleteCategories = categories.filter(category => isStarterCategory(category) || !category.description.trim());
   const dialogOpen = !!deleting || setup || usageOpen;
 
@@ -75,7 +75,7 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
         if (live) {
           const result = await api!({ type: 'dock:api', command: 'state' });
           if (!result.ok) throw new Error(result.error);
-          if (active && result.state) { setState(result.state); setDays(result.state.daysBack); }
+          if (active && result.state) { setState(result.state); setDays(clampDaysBack(result.state.daysBack)); }
           if (active && result.state?.accountEmail) {
             const labels = await api!({ type: 'dock:api', command: 'refreshLabels' });
             if (!labels.ok) throw new Error(labels.error);
@@ -297,7 +297,7 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     {tabsTarget && createPortal(<>
       <style>{nativeStyles}</style>
       <div className="dock-workspace-controls">
-        <div className="dock-native-tabs" role="tablist" aria-label="Dock categories">{live && <button type="button" className="dock-native-add" aria-label="Back to Gmail inbox" title="Back to Gmail inbox" disabled={!loaded || !state.accountEmail} onClick={backToInbox}><Inbox size={18} aria-hidden="true" /></button>}{categories.map(category => renderTab(category))}{renderTab({ id: UNCATEGORIZED, title: 'Uncategorized', description: '', icon: 'tag', color: '#cccccc' }, true)}<button type="button" className="dock-native-add" aria-label="Add category" ref={addRef} disabled={!loaded || running || busy || categories.length >= 50} onClick={() => editCategory()}><Plus size={20} aria-hidden="true" /></button></div>
+        <div className="dock-native-tabs" role="tablist" aria-label="Dock categories">{categories.map(category => renderTab(category))}{renderTab({ id: UNCATEGORIZED, title: 'Uncategorized', description: '', icon: 'tag', color: '#cccccc' }, true)}<button type="button" className="dock-native-add" aria-label="Add category" ref={addRef} disabled={!loaded || running || busy || categories.length >= 50} onClick={() => editCategory()}><Plus size={20} aria-hidden="true" /></button></div>
       </div>
       {editor && <div ref={editorRef} id="dock-category-editor" popover="auto" role="dialog" aria-labelledby="dock-editor-title" className="dock-dialog dock-category-editor" onToggle={event => { if (event.newState === 'closed') closeEditor(false); }} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeEditor(); } }}>
         <form onSubmit={event => { void saveCategory(event); }}>
@@ -318,10 +318,11 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
       <div className="dock-workspace-controls">
         <div className="dock-controls-row">
           <button type="button" className="dock-button dock-primary" onClick={() => { void categorize(); }} disabled={!loaded || busy || running || (live && (!state.accountEmail || !state.helperReady || !categories.length || !!incompleteCategories.length))}>Categorize emails</button>
-          <label className="dock-days" htmlFor="dock-days">Last <output>{scopeDays}</output> days<input id="dock-days" name="days" aria-label="Days back" type="range" min="1" max="365" value={scopeDays} disabled={running || busy || (!!canResume && resumeRun)} onChange={event => { setDays(Number(event.target.value)); }} onPointerUp={() => { if (live) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} onKeyUp={event => { if (live && ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} /></label>
+          <label className="dock-days" htmlFor="dock-days">Last <output>{scopeDays}</output> days<input id="dock-days" name="days" aria-label="Days back" aria-valuetext={`${scopeDays} days`} type="range" min={DAYS_BACK_MIN} max={DAYS_BACK_MAX} value={clampDaysBack(scopeDays)} disabled={running || busy || (!!canResume && resumeRun)} onChange={event => { setDays(Number(event.target.value)); }} onPointerUp={() => { if (live) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} onKeyUp={event => { if (live && ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) void action({ type: 'dock:api', command: 'setDaysBack', daysBack: days }); }} /></label>
+          {running && <progress className="dock-run-progress" aria-label="Categorization progress" max={Math.max(1, run.total)} value={run.phase === 'discovering' ? undefined : run.processed} />}
+          {run && <div className="dock-run-status" role="status"><span className="dock-run-summary">{runText}</span>{canResume && <label className="dock-resume-choice" title="Resume unfinished or failed messages when I press Categorize emails"><input type="checkbox" checked={resumeRun} onChange={event => setResumeRun(event.target.checked)} />Resume unfinished</label>}</div>}
           {running && <button type="button" className="dock-button" disabled={busy || run?.status === 'stopping'} onClick={() => { void action({ type: 'dock:api', command: 'stop' }); }}>Stop</button>}
           {live && <button type="button" className="dock-button" ref={usageRef} disabled={!loaded} aria-haspopup="dialog" onClick={() => setUsageOpen(true)}>Gmail usage</button>}
-          {run && <div className="dock-run-status" role="status"><span className="dock-run-summary">{runText}</span>{running && <progress aria-label="Categorization progress" max={Math.max(1, run.total)} value={run.phase === 'discovering' ? undefined : run.processed} />}{canResume && <label className="dock-resume-choice" title="Resume unfinished or failed messages when I press Categorize emails"><input type="checkbox" checked={resumeRun} onChange={event => setResumeRun(event.target.checked)} />Resume unfinished</label>}</div>}
           {toolbarError && <span className="dock-error dock-toolbar-error" role="alert" title={toolbarError}>{toolbarError}</span>}
           {run && (run.error || run.failed > 0 || !!run.failures?.length) && <RunErrors key={run.id} run={run} accountEmail={run.accountEmail || state.accountEmail} layoutTarget={controlsTarget} onRefresh={async () => {
             const result = await api!({ type: 'dock:api', command: 'refreshRunErrors', runId: run.id });
