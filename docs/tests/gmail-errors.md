@@ -8,3 +8,11 @@
 6. Error details fit inside the viewport and scroll independently of Gmail's toolbar.
 7. Escape closes the dropdown and restores focus to its trigger. Outside clicks also close it.
 8. The synthetic browser check is `node scripts/error-smoke.mjs`. It intercepts every browser request.
+
+## 0.4.14 merge verification
+
+1. Main includes the error dropdown and sorting throughput changes. Existing toolbar, sidebar, and day-range edits remain present.
+2. TypeScript, the production build, the error dropdown check, and the toolbar UI check pass.
+3. The packaged extension passes the editor smoke check and all 44 clipping scenarios.
+4. Browser fixtures reload the worker after direct storage seeds. Product caching remains unchanged.
+5. No unit tests or production Gmail/Jev calls ran.
