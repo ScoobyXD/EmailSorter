@@ -1,6 +1,6 @@
 import { decodedBody, header, type GmailFullMessage } from './mime';
 import { archiveRun, COLORS, initialState, isStarterCategory, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
-import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse } from './protocol';
+import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type EmailReference } from './protocol';
 import { GMAIL_QUOTA_METHODS } from './quota';
 import { ApiError, GmailNetworkError, GmailRequests, RunStoppedError } from './requests';
 
@@ -20,6 +20,9 @@ const active = (run?: StoredRun) => run?.status === 'running' || run?.status ===
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'The request failed. Try again.';
 const categoryDefinitions = (categories: DockCategory[]) => categories.map(({ id, title, description }) => ({ id, title, description }));
 const sameLabelName = (first: string, second: string) => first.toLowerCase() === second.toLowerCase();
+const emailReference = (id: string, message: Pick<GmailFullMessage, 'payload'>): EmailReference => ({
+  id, subject: header(message.payload, 'Subject'), sender: header(message.payload, 'From'),
+});
 
 function validateCategoryTitles(categories: DockCategory[]): void {
   const names = new Set(['uncategorized']);
@@ -120,7 +123,7 @@ export class GmailEngine {
     });
   }
   async handle(request: DockRequest): Promise<DockResponse> {
-    if (request.command === 'state' || request.command === 'stop') return await this.dispatch(request);
+    if (request.command === 'state' || request.command === 'stop' || request.command === 'refreshRunErrors') return await this.dispatch(request);
     const previous = this.commandTail;
     let release!: () => void;
     this.commandTail = new Promise<void>((resolve) => { release = resolve; });
@@ -158,6 +161,7 @@ export class GmailEngine {
           });
           break;
         case 'refreshLabels': await this.refreshLabels(); break;
+        case 'refreshRunErrors': await this.refreshRunErrors(request.runId); break;
         default: throw new Error('Unknown Dock request.');
       }
       return { ok: true, state: await this.snapshot() };
@@ -480,11 +484,13 @@ export class GmailEngine {
     }
   }
   private async processItem(runId: string, messageId: string): Promise<void> {
+    let reference: EmailReference | undefined;
     try {
       let state = await this.read();
       if (state.run?.id !== runId || state.run.status !== 'running') return;
       const run = state.run;
       const message = await this.gmail<GmailFullMessage>(`messages/${encodeURIComponent(messageId)}?format=full`, {}, true, runId);
+      reference = emailReference(messageId, message);
       // Re-check INBOX and exact epoch bounds immediately before classifying each message.
       if (!message.labelIds?.includes('INBOX') || Number(message.internalDate) < run.cutoff || Number(message.internalDate) > run.before) {
         await this.finishItem(runId, messageId, 'skipped'); return;
@@ -517,17 +523,18 @@ export class GmailEngine {
       await this.finishItem(runId, messageId, 'succeeded');
     } catch (error) {
       if (error instanceof RunStoppedError) return;
-      await this.finishItem(runId, messageId, error instanceof ApiError && error.status === 404 ? 'skipped' : 'failed', errorText(error));
+      await this.finishItem(runId, messageId, error instanceof ApiError && error.status === 404 ? 'skipped' : 'failed', errorText(error), reference);
       if (error instanceof PauseRunError || error instanceof GmailNetworkError || (error instanceof ApiError && [401, 403, 429, 500, 502, 503, 504].includes(error.status))) throw error;
     }
   }
-  private async finishItem(runId: string, id: string, status: 'succeeded' | 'failed' | 'skipped', error?: string): Promise<void> {
+  private async finishItem(runId: string, id: string, status: 'succeeded' | 'failed' | 'skipped', error?: string, reference?: EmailReference): Promise<void> {
     await this.update((state) => {
       if (state.run?.id !== runId) return;
       const item = state.run.items.find((entry) => entry.id === id);
       if (item) {
         item.status = status;
         if (error) item.error = error;
+        if (status === 'failed' && reference) Object.assign(item, reference);
         if (status === 'succeeded' && item.decision) {
           // Keep full recent model results while bounding extension storage on very large runs.
           state.recentDecisions = [...(state.recentDecisions || []), { messageId: id, decision: item.decision }].slice(-100);
@@ -536,6 +543,32 @@ export class GmailEngine {
       }
       state.run.updatedAt = Date.now(); recalculate(state.run);
     });
+  }
+  private async refreshRunErrors(runId: string): Promise<void> {
+    const before = await this.read();
+    const run = before.run;
+    if (!run || run.id !== runId) return;
+    const missing = run.items.filter((item) => item.status === 'failed' && (item.subject === undefined || item.sender === undefined));
+    if (!missing.length) return;
+    if (run.accountEmail !== before.accountEmail) throw new Error('Reconnect the Gmail account used for this run to load email details.');
+    const state = await this.requireAccount();
+    if (state.run?.id !== runId || state.accountEmail !== run.accountEmail) return;
+    // Metadata reads do not resume classification or change any saved failure.
+    await Promise.allSettled(missing.map(async (failed) => {
+      const current = await this.read();
+      if (current.run?.id !== runId || current.accountEmail !== run.accountEmail || current.run.accountEmail !== run.accountEmail) return;
+      const item = current.run.items.find((entry) => entry.id === failed.id);
+      if (!item || item.status !== 'failed' || item.error !== failed.error) return;
+      const message = await this.gmail<Pick<GmailFullMessage, 'payload'>>(`messages/${encodeURIComponent(failed.id)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`, {}, false);
+      const reference = emailReference(failed.id, message);
+      await this.update((current) => {
+        if (current.run?.id !== runId || current.accountEmail !== run.accountEmail || current.run.accountEmail !== run.accountEmail) return;
+        const item = current.run.items.find((entry) => entry.id === failed.id);
+        if (!item || item.status !== 'failed' || item.error !== failed.error) return;
+        item.subject ??= reference.subject;
+        item.sender ??= reference.sender;
+      });
+    }));
   }
   private async refreshLabels(): Promise<void> {
     const state = await this.requireAccount();

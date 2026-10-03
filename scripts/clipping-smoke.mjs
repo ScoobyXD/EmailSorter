@@ -243,7 +243,7 @@ async function checkNestedGmailToolbar() {
     const state = (await chrome.storage.local.get('dock-gmail-v2'))['dock-gmail-v2'];
     const now = Date.now();
     state.accountEmail = 'nested-toolbar@example.test';
-    state.run = { id: 'nested-toolbar-run', owner: 'previous-fixture-worker', status: 'failed', phase: 'categorizing', daysBack: 30, total: 267, processed: 264, succeeded: 264, failed: 3, skipped: 0, startedAt: now, updatedAt: now, cutoff: now - 30 * 86400000, before: now, query: 'fixture', discovered: true, categories: state.categories, accountEmail: state.accountEmail, items: Array.from({ length: 267 }, (_, index) => ({ id: `fixture-${index}`, status: index < 264 ? 'succeeded' : 'failed' })), error };
+    state.run = { id: 'nested-toolbar-run', owner: 'previous-fixture-worker', status: 'failed', phase: 'categorizing', daysBack: 30, total: 267, processed: 264, succeeded: 264, failed: 3, skipped: 0, startedAt: now, updatedAt: now, cutoff: now - 30 * 86400000, before: now, query: 'fixture', discovered: true, categories: state.categories, accountEmail: state.accountEmail, items: Array.from({ length: 267 }, (_, index) => ({ id: `fixture-${index}`, status: index < 264 ? 'succeeded' : 'failed', ...(index < 264 ? {} : { subject: `Synthetic failed email ${index}`, sender: 'Fixture <sender@example.test>', error: `Synthetic message ${index} failed. The completed labels stay saved. ${'Full error details wrap inside the dropdown. '.repeat(8)}` }) })), error };
     await chrome.storage.local.set({ 'dock-gmail-v2': state });
   }, error);
   await page.setViewportSize({ width: 1920, height: 1000 });
@@ -257,12 +257,12 @@ async function checkNestedGmailToolbar() {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByText('264 labeled · 264/267 processed · Interrupted · 3 failed', { exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Resume unfinished', exact: true })).toBeChecked();
-  await expect(page.locator('.dock-toolbar-error')).toHaveAttribute('title', error);
+  await expect(page.getByRole('button', { name: '3 errors', exact: true })).toBeVisible();
   await assess(page, 'nested-toolbar-saved-run-wide');
   const statusAlignment = await page.locator('dock-inbox-controls').evaluate(host => {
     const native = document.querySelector('[gh=mtb]').getBoundingClientRect();
     const nativeCenter = native.top + native.height / 2;
-    const centers = ['.dock-primary', '.dock-days', '.dock-run-status', '.dock-toolbar-error'].map(selector => {
+    const centers = ['.dock-primary', '.dock-days', '.dock-run-status', '.dock-errors-trigger'].map(selector => {
       const bounds = host.shadowRoot.querySelector(selector).getBoundingClientRect();
       return { selector, center: bounds.top + bounds.height / 2 };
     });
@@ -276,6 +276,35 @@ async function checkNestedGmailToolbar() {
   await page.setViewportSize({ width: 800, height: 1100 });
   await assess(page, 'nested-toolbar-saved-run-narrow');
   await expect(page.locator('.aqK > dock-inbox-controls')).toHaveAttribute('data-dock-toolbar-placement', 'native');
+  const errorTrigger = page.getByRole('button', { name: '3 errors', exact: true });
+  await errorTrigger.click();
+  const errorDialog = page.getByRole('dialog', { name: 'Email errors', exact: true });
+  await expect(errorDialog).toBeVisible();
+  await expect(errorDialog.getByRole('listitem')).toHaveCount(3);
+  await expect(errorDialog.getByText(error, { exact: true })).toBeVisible();
+  await expect(errorDialog.getByRole('link').first()).toHaveAttribute('href', 'https://mail.google.com/mail/u/?authuser=nested-toolbar%40example.test#all/fixture-264');
+  const popoverGeometry = await errorDialog.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    let hit = document.elementFromPoint(box.left + 20, box.top + 20);
+    while (hit?.shadowRoot) { const next = hit.shadowRoot.elementFromPoint(box.left + 20, box.top + 20); if (!next || next === hit) break; hit = next; }
+    return { nativePopover: element.matches(':popover-open'), hit: element === hit || element.contains(hit), withinViewport: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight, noHorizontalOverflow: element.scrollWidth <= element.clientWidth + 1 };
+  });
+  expect(popoverGeometry).toEqual({ nativePopover: true, hit: true, withinViewport: true, noHorizontalOverflow: true });
+  reports.push({ scenario: 'nested-toolbar-error-popover-shadow-root', popoverGeometry });
+  await page.screenshot({ path: path.join(artifacts, 'nested-toolbar-error-popover.png'), fullPage: true });
+  await errorDialog.press('Escape');
+  await expect(errorDialog).not.toBeVisible();
+  await expect(errorTrigger).toBeFocused();
+  const editTrigger = page.getByRole('button', { name: 'Edit Shipping', exact: true });
+  await editTrigger.focus();
+  await editTrigger.press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Edit category', exact: true });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
+  expect(await editor.evaluate(element => element.matches(':popover-open'))).toBe(true);
+  await editor.press('Escape');
+  await expect(editor).not.toBeVisible();
+  await expect(editTrigger).toBeFocused();
   await page.evaluate(() => { location.hash = '#all'; });
   await expect(page.locator('dock-inbox-controls')).toHaveCount(0);
   expect(await page.locator('[gh=tm]').evaluate(element => element.getBoundingClientRect().height)).toBe(48);
@@ -408,14 +437,14 @@ try {
       await settle(page);
       const savedToolbar = await page.locator('dock-inbox-controls').evaluate(host => {
         const root = host.shadowRoot;
-        const names = ['.dock-primary', '.dock-days', '.dock-run-status', '.dock-toolbar-error'];
+        const names = ['.dock-primary', '.dock-days', '.dock-run-status', '.dock-errors-trigger'];
         const bounds = names.map(name => { const box = root.querySelector(name).getBoundingClientRect(); return { name, top: box.top, bottom: box.bottom, center: box.top + box.height / 2 }; });
         const native = document.querySelector('.native-actions').getBoundingClientRect();
         const nativeCenter = native.top + native.height / 2;
         return { bounds, nativeCenter, aligned: bounds.every(box => Math.abs(box.center - nativeCenter) <= 2) };
       });
       if (!savedToolbar.aligned) issues.push(`${label}-saved-run-wide: controls, status, error, and native actions do not share a horizontal row`);
-      await expect(page.locator('.dock-toolbar-error')).toHaveAttribute('title', 'Fixture paused run. No real mail was read.');
+      await expect(page.getByRole('button', { name: '1 error', exact: true })).toBeVisible();
       reports.push({ scenario: `${label}-saved-run-wide`, savedToolbar });
       await page.screenshot({ path: path.join(artifacts, `${label}-saved-run-wide.png`), fullPage: true });
     }

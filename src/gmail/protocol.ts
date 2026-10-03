@@ -26,6 +26,15 @@ export interface GmailQuotaUsage {
   complete: boolean;
   methods: GmailQuotaEntry[];
 }
+export interface EmailReference {
+  id: string;
+  /** Empty strings mean the headers were fetched but were absent. */
+  subject?: string;
+  sender?: string;
+}
+export interface RunFailure extends EmailReference {
+  error: string;
+}
 export interface RunProgress {
   id: string;
   status: 'running' | 'stopping' | 'paused' | 'completed' | 'failed';
@@ -51,13 +60,14 @@ export interface DockState {
   uncategorizedLabelName?: string;
   helperReady: boolean;
   oauthConfigured: boolean;
-  run?: RunProgress;
+  run?: RunProgress & { failures?: RunFailure[] };
   runHistory?: RunProgress[];
   error?: string;
 }
 export type DockRequest = { type: 'dock:api' } & (
   | { command: 'state' | 'connect' | 'disconnect' | 'stop' | 'resume' | 'refreshLabels' }
   | { command: 'setDaysBack' | 'start'; daysBack: number }
+  | { command: 'refreshRunErrors'; runId: string }
   | { command: 'pairHelper'; token: string }
   | { command: 'importCategories'; json: string }
   | { command: 'saveCategory'; category: { id?: string; title: string; description: string; icon?: string; color?: string } }

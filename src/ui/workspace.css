@@ -37,7 +37,7 @@
 .dock-run-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-inline-size: 0; font: 12px/1.4 Arial, sans-serif; }
 .dock-run-summary { overflow-wrap: anywhere; }
 .dock-run-status progress { inline-size: 70px; block-size: 6px; accent-color: #0b57d0; }
-.dock-toolbar-error { flex: 1 1 180px; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-toolbar-error { flex: 1 1 180px; min-inline-size: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .dock-dialog { position: fixed; inset: 0; border: 1px solid #dadce0; border-radius: 12px; padding: 25px; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); margin: auto; background: #fff; color: #202124; box-shadow: 0 10px 40px #20212433; font: 14px/1.5 Arial, sans-serif; overflow: auto; }
 .dock-dialog::backdrop { background: #20212450; }
 .dock-dialog.dock-usage-dialog { width: 900px; }
@@ -70,6 +70,20 @@
 .dock-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .dock-dialog.dock-category-editor { inset: auto; margin: 0; width: 320px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.35; box-shadow: 0 4px 16px #20212430, 0 1px 3px #20212420; z-index: 1000; }
 .dock-category-editor::backdrop { background: transparent; pointer-events: none; }
+.dock-workspace-controls .dock-errors-trigger { color: #b3261e; }
+.dock-dialog.dock-errors-popover { inset: auto; margin: 0; width: 440px; max-width: calc(100vw - 16px); max-height: min(560px, calc(100dvh - 16px)); padding: 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px #20212430, 0 1px 3px #20212420; z-index: 1000; overscroll-behavior: contain; }
+.dock-errors-popover::backdrop { background: transparent; pointer-events: none; }
+.dock-errors-popover:focus-visible, .dock-errors-popover a:focus-visible { outline: 2px solid #0b57d0; outline-offset: -2px; }
+.dock-errors-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dock-errors-heading h2 { margin: 0; font-size: 16px; }
+.dock-errors-heading .dock-button { padding: 5px; min-height: 28px; }
+.dock-error-list { margin: 12px 0 0; padding-inline-start: 22px; }
+.dock-error-list li { padding: 12px 0; border-top: 1px solid #e0e3e7; overflow-wrap: anywhere; }
+.dock-error-list .dock-error, .dock-run-error { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dock-error-email { color: #0b57d0; font-weight: 600; text-decoration: underline; }
+.dock-error-sender, .dock-error-id { display: block; margin-top: 3px; color: #5f6368; }
+.dock-error-id { font-size: 12px; }
+.dock-error-list .dock-error { margin: 6px 0 0; }
 .dock-category-editor form { min-width: 0; }
 .dock-category-editor label { gap: 3px; margin: 0 0 8px; font-size: 12px; }
 .dock-category-editor input, .dock-category-editor select, .dock-category-editor textarea { padding: 5px 7px; font: 13px/1.4 Arial, sans-serif; }
