@@ -1,5 +1,27 @@
 # Dock verification — October 2, 2026
 
+## Sorting throughput
+
+1. Extension and helper TypeScript checks, the production build, and packaging pass.
+2. The built extension passes synthetic browser integration through its actual background message API.
+3. Sixteen emails complete with five overlapping Gmail requests and at most four helper requests.
+4. Eight later emails complete before the first email's delayed Gmail read finishes.
+5. Counters match all 37 fixture attempts and 417 estimated quota units.
+6. An injected HTTP 500 adds one read attempt, one retry, one HTTP error, and 20 quota units.
+7. Stop retains four decisions. Resume completes eight emails with eight total classifications.
+8. Repeated groups of 12 snapshots make zero state writes. Paused elapsed time remains fixed.
+9. Browser restart pauses the run, marks timing coverage partial, and sends no automatic requests.
+10. After nine injected storage write failures, an existing state request saves a recoverable failed status when storage returns.
+11. The UI smoke check passes elapsed-rate calculation, overlapping durations, partial and legacy data, zero elapsed time, and narrow dialogs.
+12. The helper's existing extension-origin browser check passes on an isolated port. The existing listener remains unchanged.
+13. Pipeline evidence: `test-results/sorting-throughput/result.json`. Reproduce with `node test-results/sorting-throughput/verify.mjs` after building.
+14. UI evidence: `test-results/ui-fixture/gmail-usage.png` and `gmail-usage-mobile.png`.
+15. Business rules: `docs/tests/gmail-quota.md`. Helper timing and admission contracts: `helper/README.md`.
+16. No unit tests or production Gmail/Jev calls ran. Synthetic latency does not measure real mailbox throughput.
+17. A user-started mailbox session must measure the actual completed rate in Gmail usage. The 240/minute figure is a theoretical ceiling before overhead.
+18. A synthetic Gmail 429 during overlapping reads persists the shared cooldown and blocks later requests. Stop reaches paused in under one second.
+19. All 16 fixture label updates preserve INBOX, UNREAD, and unrelated labels. No-match selects the owned Uncategorized label.
+
 ## 0.4.9 Category setup and compact editor
 
 1. TypeScript, the production build, and packaging pass.

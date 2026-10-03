@@ -44,11 +44,20 @@ The helper binds only `127.0.0.1:38471`. Requests require the exact extension Or
 }
 ```
 
-The response is `{categoryId, model, answer, usage}`. `answer` preserves Jev's exact `type`, `choice`, `confidence`, and complete `probabilities`. `usage` preserves input/output token counts. The Choice criterion keys are the stable category IDs, with `__uncategorized__` added for no match. That outcome maps only `categoryId` to `null`; the original answer remains unchanged. No confidence threshold or urgency classification changes the model's choice.
+The response is `{categoryId, model, answer, usage, timing?}`. `answer` preserves Jev's exact `type`, `choice`, `confidence`, and complete `probabilities`. `usage` preserves input/output token counts. The Choice criterion keys are the stable category IDs, with `__uncategorized__` added for no match. That outcome maps only `categoryId` to `null`; the original answer remains unchanged. No confidence threshold or urgency classification changes the model's choice.
+
+1. `/health` includes `rateLimit: {resetAt, remaining, active}`. `resetAt` is an epoch timestamp in milliseconds.
+2. The helper admits at most four concurrent requests and 240 requests per minute. Rejected busy requests do not consume that allowance.
+3. A 429 response exposes `Retry-After`. Rate exhaustion returns the remaining window duration, rounded up to seconds.
+4. `timing.jevRequestMs` measures the SDK call with a monotonic clock. It includes internal retry delays.
+5. `timing.jevSdkCalls` counts SDK calls. `timing.jevRetries` is `null` because the SDK does not report actual retries.
+6. Cached responses set `timing.cacheHit` to `true` and report zero SDK calls and zero SDK duration.
+7. Error responses include timing when an SDK call occurred. Timing uses the existing response and adds no separate writes or requests.
+8. Admitted classification responses expose `X-Dock-Rate-Limit-Reset`. The extension uses this epoch timestamp to align later rate windows.
 
 Up to 100 current categories are accepted. ID/title/description limits are 100/120/1000 characters; sender/subject/body limits are 2048/4000/60000 characters. Total validated JSON must be at most 90 KiB; HTTP request bodies are limited to 128 KiB. Oversize items fail visibly rather than being silently truncated. Jev can also reject inputs exceeding its token limit. Four simultaneous requests and 240 requests per minute are allowed; excess returns 429. The SDK retries transient faults up to twice with bounded delays within a 23-second total deadline (15 seconds per attempt), while disconnecting/canceling aborts the in-flight request. This deadline stays below Chrome MV3's 30-second fetch-response limit. A one-hour, 2,000-entry memory-only result cache reduces repeated requests after retries; it stores hashes and answers, never source email text. Restart clears that cache. The extension persists completed categorization and handles Gmail label retries separately.
 
-Errors return `{error:{code,message,retryable}}`. Messages are safe fixed text, with no upstream response body or credentials.
+Errors return `{error:{code,message,retryable},timing?}`. Messages are safe fixed text, with no upstream response body or credentials.
 
 ## Verification
 

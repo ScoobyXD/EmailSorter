@@ -1,5 +1,6 @@
 import { APIError, APIConnectionError, APIUserAbortError, TypeSafeClient, choice } from '@typesafe-ai/sdk';
 import type { ChoiceResponse, Usage } from '@typesafe-ai/sdk';
+import type { ClassificationTiming } from './protocol.ts';
 
 export const NO_MATCH = '__uncategorized__';
 export const MODEL = 'jev-1.13.0';
@@ -16,12 +17,14 @@ export interface ClassificationResult {
   model: string;
   answer: ChoiceResponse;
   usage: Usage;
+  timing?: ClassificationTiming;
 }
 
 export class PublicError extends Error {
   status: number;
   code: string;
   retryable: boolean;
+  timing?: ClassificationTiming;
   constructor(status: number, code: string, message: string, retryable = false) {
     super(message);
     this.status = status;
@@ -124,26 +127,38 @@ export function makeClassifier(apiKey: string, model = MODEL) {
     retry: { maxRetries: 2, backoffInitialMs: 500, backoffMaxMs: 2500, maxRetryAfterMs: 5000 },
   });
   return async (input: ClassificationRequest, signal: AbortSignal): Promise<ClassificationResult> => {
+    const timing: ClassificationTiming = { jevRequestMs: 0, jevSdkCalls: 0, jevRetries: null, cacheHit: false };
+    const timedError = (error: PublicError): PublicError => {
+      error.timing = timing;
+      return error;
+    };
     try {
-      const result = await client.systemOne({ ...buildQuestion(input), model }, { signal });
-      return validateResult(result, input);
+      const request = { ...buildQuestion(input), model };
+      const started = performance.now();
+      timing.jevSdkCalls = 1;
+      let result;
+      try { result = await client.systemOne(request, { signal }); }
+      finally {
+        timing.jevRequestMs = performance.now() - started;
+      }
+      return { ...validateResult(result, input), timing };
     } catch (error) {
-      if (error instanceof PublicError) throw error;
-      if (error instanceof APIUserAbortError || signal.aborted) throw new PublicError(499, 'CANCELLED', 'Classification was stopped.');
+      if (error instanceof PublicError) throw timedError(error);
+      if (error instanceof APIUserAbortError || signal.aborted) throw timedError(new PublicError(499, 'CANCELLED', 'Classification was stopped.'));
       if (error instanceof APIError && [401, 403].includes(error.status)) {
-        throw new PublicError(502, 'JEV_AUTH', 'The local Jev API key was rejected. Run the helper setup again.');
+        throw timedError(new PublicError(502, 'JEV_AUTH', 'The local Jev API key was rejected. Run the helper setup again.'));
       }
       if (error instanceof APIError && error.status === 429) {
-        throw new PublicError(429, 'JEV_RATE_LIMIT', 'Jev is temporarily rate limited. Retry shortly.', true);
+        throw timedError(new PublicError(429, 'JEV_RATE_LIMIT', 'Jev is temporarily rate limited. Retry shortly.', true));
       }
       if (error instanceof APIError && [400, 413, 422].includes(error.status)) {
-        throw new PublicError(422, 'JEV_INPUT', 'Jev could not classify this input. Check its size and category descriptions.');
+        throw timedError(new PublicError(422, 'JEV_INPUT', 'Jev could not classify this input. Check its size and category descriptions.'));
       }
       if (error instanceof APIConnectionError || error instanceof APIError) {
-        throw new PublicError(503, 'JEV_UNAVAILABLE', 'Jev could not be reached or is temporarily unavailable.', true);
+        throw timedError(new PublicError(503, 'JEV_UNAVAILABLE', 'Jev could not be reached or is temporarily unavailable.', true));
       }
       // SDK error bodies may contain request text; never log or return them.
-      throw new PublicError(502, 'JEV_FAILURE', 'Jev classification failed without changing the email.', true);
+      throw timedError(new PublicError(502, 'JEV_FAILURE', 'Jev classification failed without changing the email.', true));
     }
   };
 }

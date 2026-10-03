@@ -25,6 +25,7 @@ export default defineBackground(() => {
     async invalidateToken(token) { await browser.identity.removeCachedAuthToken({ token }); },
     async disconnect() { await browser.identity.clearAllCachedAuthTokens(); },
     fetch: globalThis.fetch.bind(globalThis),
+    async keepAlive() { await browser.runtime.getPlatformInfo(); },
     oauthConfigured: Boolean(browser.runtime.getManifest().oauth2?.client_id),
   });
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {

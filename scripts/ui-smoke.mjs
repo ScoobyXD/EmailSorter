@@ -59,7 +59,7 @@ try {
   await checkGmailUsage(page, directory);
   await checkGmailNavigation(browser, fixtureHtml);
   expect(errors).toEqual([]); expect(unexpected).toEqual([]);
-  console.log(JSON.stringify({ result: 'PASS', checks: ['current Gmail label names refresh once on load; native mail stays visible without a custom list', 'category, Uncategorized, Inbox and browser Back navigate without per-click API calls', 'pointer, Enter and arrow-key category controls preserve the verified account and current document', 'fresh label page, native label rename, reserved characters and missing labels', 'mismatch or unverified browser account uses an account-qualified Gmail URL', 'disconnected categories open Connection; label-refresh and OAuth errors remain visible', 'no classification before manual click, progress, disabled edits, Stop and explicit resume', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', checks: ['current Gmail label names refresh once on load; native mail stays visible without a custom list', 'category, Uncategorized, Inbox and browser Back navigate without per-click API calls', 'pointer, Enter and arrow-key category controls preserve the verified account and current document', 'fresh label page, native label rename, reserved characters and missing labels', 'mismatch or unverified browser account uses an account-qualified Gmail URL', 'disconnected categories open Connection; label-refresh and OAuth errors remain visible', 'no classification before manual click, progress, disabled edits, Stop and explicit resume', 'Gmail timing uses elapsed rate despite overlapping stages, marks partial and legacy data, handles zero elapsed time, and fits narrow dialogs', 'synthetic fixture only, zero live network requests and page errors'] }, null, 2));
 } catch (error) { console.error(JSON.stringify({ errors, unexpected })); throw error; }
 finally { await context.close(); await browser.close(); }
 
@@ -69,6 +69,7 @@ async function checkGmailUsage(page, directory) {
   const dialog = page.getByRole('dialog', { name: 'Gmail usage', exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Gmail usage is unavailable for this run.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Timing is unavailable for this run.', { exact: true })).toBeVisible();
   await page.evaluate(() => {
     const run = window.fixture.state.run;
     const entry = (method, unitsPerRequest, requests, succeeded = requests, retries = 0, httpErrors = 0, networkErrors = 0) => ({ method, unitsPerRequest, requests, succeeded, retries, httpErrors, networkErrors });
@@ -83,9 +84,20 @@ async function checkGmailUsage(page, directory) {
       entry('messages.attachments.get', 20, 3),
       entry('messages.modify', 5, 100),
     ] };
+    Object.assign(run, { total: 100, processed: 100, succeeded: 100 });
+    run.timings = { complete: true, elapsedMs: 30000, completedEmails: 100, stages: {
+      gmailQueue: { count: 128, totalMs: 60000, maxMs: 2000 },
+      gmailRequest: { count: 125, totalMs: 90000, maxMs: 1250 },
+      helperQueue: { count: 100, totalMs: 10000, maxMs: 500 },
+      helperRequest: { count: 100, totalMs: 90000, maxMs: 3200 },
+      jevRequest: { count: 95, totalMs: 80000, maxMs: 3000 },
+      storageRead: { count: 1, totalMs: 100, maxMs: 100 },
+      storageWrite: { count: 700, totalMs: 30000, maxMs: 200 },
+    } };
     window.fixture.state.runHistory = [
-      { ...structuredClone(run), id: 'partial-run', startedAt: run.startedAt - 60000, gmailUsage: { startedAt: run.startedAt - 30000, complete: false, methods: [entry('messages.list', 5, 1)] } },
-      { ...structuredClone(run), id: 'legacy-run', startedAt: run.startedAt - 120000, gmailUsage: undefined },
+      { ...structuredClone(run), id: 'partial-run', startedAt: run.startedAt - 60000, gmailUsage: { startedAt: run.startedAt - 30000, complete: false, methods: [entry('messages.list', 5, 1)] }, timings: { ...structuredClone(run.timings), complete: false, elapsedMs: 15000, completedEmails: 20 } },
+      { ...structuredClone(run), id: 'legacy-run', startedAt: run.startedAt - 120000, gmailUsage: undefined, timings: undefined },
+      { ...structuredClone(run), id: 'zero-time-run', timings: { complete: true, elapsedMs: 0, completedEmails: 0, stages: {} } },
     ];
   });
   const table = dialog.getByRole('table', { name: 'Gmail quota units by operation' });
@@ -94,15 +106,45 @@ async function checkGmailUsage(page, directory) {
   await expect(dialog).toContainText('3,108');
   await expect(dialog).toContainText('240');
   await expect(dialog).toContainText('ui-fixture@example.test');
+  const summaryValue = label => dialog.locator('.dock-usage-summary > div').filter({ has: page.getByText(label, { exact: true }) }).locator('dd');
+  const timingTable = dialog.getByRole('table', { name: 'Aggregate stage durations', exact: true });
+  await expect(summaryValue('Completed emails measured')).toHaveText('100');
+  await expect(summaryValue('Active elapsed minutes')).toHaveText('0.5');
+  // 1. Rate uses 100 completions / 0.5 minutes, although overlapping stages total over 30 seconds.
+  await expect(summaryValue('Completed emails / min')).toHaveText('200');
+  await expect(timingTable.getByRole('columnheader')).toHaveText(['Stage', 'Count', 'Aggregate seconds', 'Maximum seconds']);
+  await expect(timingTable.getByRole('row')).toHaveCount(8);
+  await expect(timingTable.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Helper requests', exact: true }) }).getByRole('cell')).toHaveText(['100', '90', '3.2']);
+  await expect(timingTable.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Storage writes', exact: true }) }).getByRole('cell')).toHaveText(['700', '30', '0.2']);
+  await expect(dialog).toContainText('Operations overlap, so these totals do not equal elapsed time.');
+  await expect(dialog).toContainText('The SDK does not expose their count.');
+  await expect(dialog).toContainText('Helper preflight, pauses, and browser downtime are excluded.');
+  await expect(dialog.getByText(/^Partial timing\./)).toHaveCount(0);
   await page.screenshot({ path: path.join(directory, 'gmail-usage.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  // 2. A narrow dialog keeps the timing table in its own keyboard-scrollable region.
+  const timingRegion = dialog.getByRole('region', { name: 'Aggregate stage durations', exact: true });
+  await timingRegion.focus();
+  await expect(timingRegion).toBeFocused();
+  expect(await timingRegion.evaluate(element => element.clientWidth <= element.closest('dialog').clientWidth)).toBe(true);
+  await expect(summaryValue('Completed emails / min')).toHaveText('200');
   await page.screenshot({ path: path.join(directory, 'gmail-usage-mobile.png'), fullPage: true });
   await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('partial-run');
   await expect(dialog).toContainText(/partial/i);
+  // 3. Partial data shows only the measured rate. Legacy data shows no invented timing values.
+  await expect(dialog.getByText(/^Partial timing\./)).toContainText('measured periods only');
+  await expect(summaryValue('Measured emails / min')).toHaveText('80');
+  await expect(dialog.getByText('Completed emails / min', { exact: true })).toHaveCount(0);
   await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('legacy-run');
   await expect(dialog.getByText('Gmail usage is unavailable for this run.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Timing is unavailable for this run.', { exact: true })).toBeVisible();
+  await expect(timingTable).toHaveCount(0);
+  await expect(dialog.getByText('Completed emails measured', { exact: true })).toHaveCount(0);
+  await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('zero-time-run');
+  await expect(summaryValue('Completed emails / min')).toHaveText('—');
+  await expect(timingTable).toHaveCount(0);
   await dialog.getByRole('combobox', { name: 'Run', exact: true }).selectOption('fixture-run');
   await expect(dialog).toContainText('3,108');
   await dialog.press('Escape');

@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MAX_REQUEST_BYTES, MODEL, PublicError, validateInput } from './classification.ts';
 import type { ClassificationRequest, ClassificationResult } from './classification.ts';
+import { HELPER_CONCURRENCY, HELPER_RATE_WINDOW_MS, HELPER_REQUESTS_PER_MINUTE, HELPER_RATE_RESET_HEADER } from './protocol.ts';
+import type { HelperRateLimit } from './protocol.ts';
 
 export const PORT = 38471;
 export const EXTENSION_ID = 'ccklhlnpillicildcgbdfibggkkhkdib';
@@ -43,8 +45,17 @@ export function createHelperServer(options: Options) {
   if (!/^[a-p]{32}$/.test(extensionId)) throw new Error('A valid Chrome extension ID is required.');
   const origin = `chrome-extension://${extensionId}`;
   let active = 0;
-  let windowStart = Date.now();
+  let windowStart = performance.now();
   let requestsInWindow = 0;
+  const rateLimit = (): HelperRateLimit => {
+    const now = performance.now();
+    if (now - windowStart >= HELPER_RATE_WINDOW_MS) { windowStart = now; requestsInWindow = 0; }
+    return {
+      resetAt: Date.now() + Math.ceil(HELPER_RATE_WINDOW_MS - (now - windowStart)),
+      remaining: Math.max(0, HELPER_REQUESTS_PER_MINUTE - requestsInWindow),
+      active,
+    };
+  };
   const cache = new Map<string, { result: ClassificationResult; expires: number }>();
   const server = createServer({ maxHeaderSize: 8192 }, async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
@@ -58,6 +69,7 @@ export function createHelperServer(options: Options) {
       }
       if (request.headers.origin !== origin) throw new PublicError(403, 'ORIGIN_FORBIDDEN', 'Only the paired Dock extension is allowed.');
       response.setHeader('Access-Control-Allow-Origin', origin);
+      response.setHeader('Access-Control-Expose-Headers', `Retry-After, ${HELPER_RATE_RESET_HEADER}`);
       response.setHeader('Vary', 'Origin');
       if (request.method === 'OPTIONS') {
         const method = request.headers['access-control-request-method'];
@@ -78,15 +90,17 @@ export function createHelperServer(options: Options) {
       }
       if (['GET', 'POST'].includes(request.method ?? '') && request.url === '/health') {
         if (request.method === 'POST') await readJson(request);
-        respond(response, 200, { ok: true, service: 'dock-jev-helper', version: '0.4.0', model: options.model ?? MODEL });
+        respond(response, 200, { ok: true, service: 'dock-jev-helper', version: '0.4.0', model: options.model ?? MODEL, rateLimit: rateLimit() });
         return;
       }
       if (request.method !== 'POST' || request.url !== '/classify') throw new PublicError(404, 'NOT_FOUND', 'Unknown helper operation.');
-      if (Date.now() - windowStart >= 60000) { windowStart = Date.now(); requestsInWindow = 0; }
-      if (++requestsInWindow > 240 || active >= 4) {
-        response.setHeader('Retry-After', '2');
+      const limit = rateLimit();
+      if (limit.remaining === 0 || active >= HELPER_CONCURRENCY) {
+        response.setHeader('Retry-After', String(limit.remaining === 0 ? Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000)) : 2));
         throw new PublicError(429, 'HELPER_BUSY', 'The helper is busy. Retry shortly.', true);
       }
+      response.setHeader(HELPER_RATE_RESET_HEADER, String(limit.resetAt));
+      requestsInWindow++;
       active++;
       const abort = new AbortController();
       const onClose = () => { if (!response.writableEnded) abort.abort(); };
@@ -99,11 +113,17 @@ export function createHelperServer(options: Options) {
         const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
         const cached = cache.get(digest);
         let result: ClassificationResult;
-        if (cached && cached.expires > Date.now()) result = cached.result;
+        if (cached && cached.expires > Date.now()) {
+          result = { ...cached.result, timing: { jevRequestMs: 0, jevSdkCalls: 0, jevRetries: null, cacheHit: true } };
+        }
         else {
           try { result = await options.classify(input, abort.signal); }
           catch (error) {
-            if (deadlineElapsed) throw new PublicError(504, 'JEV_TIMEOUT', 'Jev took too long. Retry this item.', true);
+            if (deadlineElapsed) {
+              const timeout = new PublicError(504, 'JEV_TIMEOUT', 'Jev took too long. Retry this item.', true);
+              if (error instanceof PublicError) timeout.timing = error.timing;
+              throw timeout;
+            }
             throw error;
           }
           if (cache.size >= 2000) cache.delete(cache.keys().next().value!);
@@ -117,7 +137,7 @@ export function createHelperServer(options: Options) {
       }
     } catch (error) {
       const safe = error instanceof PublicError ? error : new PublicError(500, 'HELPER_FAILURE', 'The local helper could not complete this request.');
-      respond(response, safe.status, { error: { code: safe.code, message: safe.message, retryable: safe.retryable } });
+      respond(response, safe.status, { error: { code: safe.code, message: safe.message, retryable: safe.retryable }, ...(safe.timing ? { timing: safe.timing } : {}) });
     }
   });
   server.requestTimeout = 15000;

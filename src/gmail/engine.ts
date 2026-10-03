@@ -1,6 +1,7 @@
 import { decodedBody, header, type GmailFullMessage } from './mime';
 import { archiveRun, COLORS, initialState, isStarterCategory, labelName, legacyLabelName, publicState, recalculate, type Classification, type StoredRun, type StoredState } from './model';
-import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse } from './protocol';
+import { HELPER_URL, UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type RunTimings, type TimingStage } from './protocol';
+import { HELPER_CONCURRENCY, HELPER_REQUESTS_PER_MINUTE, HELPER_RATE_WINDOW_MS, HELPER_RATE_RESET_HEADER, type HelperRateLimit, type ClassificationTiming } from '../../helper/src/protocol';
 import { GMAIL_QUOTA_METHODS } from './quota';
 import { ApiError, GmailNetworkError, GmailRequests, RunStoppedError } from './requests';
 
@@ -13,6 +14,7 @@ interface EngineDependencies {
   disconnect(): Promise<void>;
   fetch: typeof fetch;
   oauthConfigured: boolean;
+  keepAlive?(): Promise<void>;
 }
 interface Label { id: string; name: string; type?: string }
 class PauseRunError extends Error {}
@@ -45,79 +47,146 @@ export class GmailEngine {
   private commandTail: Promise<unknown> = Promise.resolve();
   private running: Promise<void> | undefined;
   private tokenProfiles = new Map<string, string>();
+  private cachedState?: StoredState;
+  private loading?: Promise<StoredState>;
+  private lastKeepAlive = 0;
+  private timing?: { runId: string; since?: number; data: RunTimings };
+  private helperTail: Promise<void> = Promise.resolve();
+  private helperNextAt = 0;
+  private helperLimit?: HelperRateLimit;
+  private helperSlots = new Set<Promise<void>>();
+  private abortedRunId?: string;
+  private checkpointFailure?: { runId: string; error: string };
   private readonly requests: GmailRequests;
   constructor(private readonly deps: EngineDependencies) {
     this.requests = new GmailRequests({
       fetch: (...args) => this.deps.fetch(...args),
-      traffic: async (change) => await this.update((state) => change(state.gmailTraffic ||= {})),
-      check: async (runId) => {
-        const state = await this.read();
-        if (runId && (state.run?.id !== runId || state.run.status !== 'running')) throw new RunStoppedError();
+      traffic: async (change) => {
+        const before = (await this.read()).gmailTraffic || {};
+        const traffic = { ...before };
+        const result = change(traffic);
+        if (traffic.nextAt === before.nextAt && traffic.retryAt === before.retryAt) return result;
+        return await this.update((state) => change(state.gmailTraffic ||= {}));
       },
+      check: async (runId) => await this.checkRun(runId),
       waiting: async (until, runId) => {
         await this.update((state) => {
           if (state.run?.status === 'running' && (!runId || state.run.id === runId)) {
             state.run.retryAt = until;
             state.run.updatedAt = Date.now();
           }
-        });
+        }, (state) => state.run?.status === 'running' && (!runId || state.run.id === runId) && state.run.retryAt !== until);
       },
-      ready: async (runId) => {
+      admit: async (method, retry, nextAt, runId) => {
         await this.update((state) => {
+          if (runId && (state.run?.id !== runId || state.run.status !== 'running')) throw new RunStoppedError();
+          (state.gmailTraffic ||= {}).nextAt = nextAt;
           if (state.run && (!runId || state.run.id === runId) && (state.run.retryAt || 0) <= Date.now()) delete state.run.retryAt;
+          if (runId) this.recordGmail(state, method, { retry }, runId);
         });
       },
       record: async (method, event, runId) => {
         if (!runId) return;
-        await this.update((state) => {
-          const run = state.run;
-          if ('retry' in event && (run?.id !== runId || run.status !== 'running')) throw new RunStoppedError();
-          if (run?.id !== runId) return;
-          const usage = run.gmailUsage ||= { startedAt: Date.now(), complete: false, methods: [] };
-          let entry = usage.methods.find((item) => item.method === method);
-          if (!entry) {
-            entry = { method, unitsPerRequest: GMAIL_QUOTA_METHODS[method].units, requests: 0, retries: 0, succeeded: 0, httpErrors: 0, networkErrors: 0 };
-            usage.methods.push(entry);
-          }
-          if ('retry' in event) {
-            entry.requests++;
-            if (event.retry) entry.retries++;
-          } else {
-            entry[event.outcome]++;
-          }
-          run.updatedAt = Date.now();
-        });
+        await this.update((state) => this.recordGmail(state, method, event, runId), (state) => state.run?.id === runId);
       },
+      timing: (stage, milliseconds, runId) => { if (runId) this.measure(stage, milliseconds, runId); },
     });
   }
-  private async read(): Promise<StoredState> {
-    const existing = await this.deps.load();
-    if (existing?.version === 2) return existing;
-    const state = initialState(await this.deps.legacy());
-    await this.deps.save(state);
-    return state;
+  private recordGmail(state: StoredState, method: keyof typeof GMAIL_QUOTA_METHODS, event: { retry: boolean } | { outcome: 'succeeded' | 'httpErrors' | 'networkErrors' }, runId: string): void {
+    const run = state.run;
+    if (run?.id !== runId) return;
+    const usage = run.gmailUsage ||= { startedAt: Date.now(), complete: false, methods: [] };
+    let entry = usage.methods.find((item) => item.method === method);
+    if (!entry) {
+      entry = { method, unitsPerRequest: GMAIL_QUOTA_METHODS[method].units, requests: 0, retries: 0, succeeded: 0, httpErrors: 0, networkErrors: 0 };
+      usage.methods.push(entry);
+    }
+    if ('retry' in event) { entry.requests++; if (event.retry) entry.retries++; }
+    else entry[event.outcome]++;
+    run.updatedAt = Date.now();
   }
-  private async update<T>(fn: (state: StoredState) => T | Promise<T>): Promise<T> {
+  private measure(stage: TimingStage, milliseconds: number, runId = this.timing?.runId, count = 1): void {
+    if (!this.timing || this.timing.since === undefined || this.timing.runId !== runId || !Number.isFinite(milliseconds)) return;
+    const entry = this.timing.data.stages[stage] ||= { count: 0, totalMs: 0, maxMs: 0 };
+    entry.count += count;
+    entry.totalMs += Math.max(0, milliseconds);
+    entry.maxMs = Math.max(entry.maxMs, milliseconds);
+  }
+  private currentTimings(): RunTimings | undefined {
+    if (!this.timing) return;
+    return { ...this.timing.data, elapsedMs: this.timing.data.elapsedMs + (this.timing.since === undefined ? 0 : performance.now() - this.timing.since), stages: structuredClone(this.timing.data.stages) };
+  }
+  private stopTiming(): void {
+    if (this.timing?.since === undefined) return;
+    this.timing.data.elapsedMs += performance.now() - this.timing.since;
+    this.timing.since = undefined;
+  }
+  private async loadState(): Promise<StoredState> {
+    if (this.cachedState) return this.cachedState;
+    if (!this.loading) this.loading = (async () => {
+      const started = performance.now();
+      const existing = await this.deps.load();
+      this.measure('storageRead', performance.now() - started);
+      if (existing?.version === 2) return this.cachedState = existing;
+      const state = initialState(await this.deps.legacy());
+      await this.deps.save(state);
+      return this.cachedState = state;
+    })();
+    try { return await this.loading; } finally { this.loading = undefined; }
+  }
+  private async read(): Promise<StoredState> {
+    await this.transactionTail;
+    return await this.loadState();
+  }
+  private async checkRun(runId?: string): Promise<void> {
+    if (runId && performance.now() - this.lastKeepAlive >= 20000) {
+      this.lastKeepAlive = performance.now();
+      // Retain the existing cancellable cooldown behavior without reading the whole state each second.
+      await this.deps.keepAlive?.();
+    }
+    const state = await this.read();
+    if (runId && (this.abortedRunId === runId || state.run?.id !== runId || state.run.status !== 'running' || state.run.owner !== this.owner || state.accountEmail !== state.run.accountEmail)) throw new RunStoppedError();
+  }
+  private async update<T>(fn: (state: StoredState) => T, shouldWrite?: (state: StoredState) => boolean): Promise<T> {
     const previous = this.transactionTail;
     let release!: () => void;
     this.transactionTail = new Promise<void>((resolve) => { release = resolve; });
     await previous;
     try {
-      const state = await this.read();
-      const result = await fn(state);
-      await this.deps.save(state);
+      const current = await this.loadState();
+      // Conditional callers return void. Do not clone or save an unchanged checkpoint.
+      if (shouldWrite && !shouldWrite(current)) return undefined as T;
+      const state = structuredClone(current);
+      const result = fn(state);
+      if (this.timing && state.run?.id === this.timing.runId) {
+        state.run!.timings = this.currentTimings();
+        if (current.run?.id === state.run!.id) state.run!.timings!.completedEmails += Math.max(0, state.run!.succeeded - current.run.succeeded);
+      }
+      const started = performance.now();
+      try { await this.deps.save(state); }
+      finally { this.measure('storageWrite', performance.now() - started); }
+      this.cachedState = state;
+      if (this.timing && state.run?.id === this.timing.runId) this.timing.data.completedEmails = state.run.timings!.completedEmails;
       return result;
     } finally { release(); }
   }
   private async snapshot() {
-    return await this.update((state) => {
-      if (active(state.run) && state.run!.owner !== this.owner) {
+    await this.update((state) => {
+      if (state.run?.id === this.checkpointFailure?.runId && this.checkpointFailure) {
+        state.run!.status = 'failed';
+        state.run!.error = `Progress could not be saved. Resume after storage is available. ${this.checkpointFailure.error}`;
+        state.run!.updatedAt = Date.now();
+      } else if (active(state.run) && state.run!.owner !== this.owner) {
         state.run!.status = 'paused';
         state.run!.error = 'Browser or extension restarted. Completed labels are saved. Press Categorize emails to resume.';
         state.run!.updatedAt = Date.now();
+        if (state.run!.timings) state.run!.timings.complete = false;
       }
-      return publicState(state, this.deps.oauthConfigured);
-    });
+    }, (state) => active(state.run) && (state.run!.owner !== this.owner || state.run!.id === this.checkpointFailure?.runId));
+    const state = await this.read();
+    const snapshot = publicState(state, this.deps.oauthConfigured);
+    if (this.timing && snapshot.run?.id === this.timing.runId) snapshot.run.timings = this.currentTimings();
+    return snapshot;
   }
   async handle(request: DockRequest): Promise<DockResponse> {
     if (request.command === 'state' || request.command === 'stop') return await this.dispatch(request);
@@ -146,7 +215,7 @@ export class GmailEngine {
         case 'importCategories': await this.importCategories(request.json); break;
         case 'setDaysBack':
           this.validateDays(request.daysBack);
-          await this.update((state) => { state.daysBack = request.daysBack; });
+          await this.update((state) => { state.daysBack = request.daysBack; }, (state) => state.daysBack !== request.daysBack);
           break;
         case 'saveCategory': await this.saveCategory(request.category); break;
         case 'deleteCategory': await this.deleteCategory(request.categoryId); break;
@@ -155,7 +224,7 @@ export class GmailEngine {
         case 'stop':
           await this.update((state) => {
             if (state.run?.status === 'running') { state.run.status = 'stopping'; state.run.updatedAt = Date.now(); }
-          });
+          }, (state) => state.run?.status === 'running');
           break;
         case 'refreshLabels': await this.refreshLabels(); break;
         default: throw new Error('Unknown Dock request.');
@@ -323,6 +392,7 @@ export class GmailEngine {
         total: 0, processed: 0, succeeded: 0, failed: 0, skipped: 0, startedAt: now, updatedAt: now,
         categories: structuredClone(current.categories), accountEmail: current.accountEmail!, discovered: false, items: [],
         gmailUsage: { startedAt: now, complete: true, methods: [] },
+        timings: { complete: true, elapsedMs: 0, completedEmails: 0, stages: {} },
       };
     });
     this.launch();
@@ -351,23 +421,33 @@ export class GmailEngine {
     this.launch();
   }
   private launch(): void {
-    this.running = this.drain();
-    // drain catches all failures and checkpoints; completion bookkeeping is ephemeral only.
-    void (async () => { try { await this.running; } finally { this.running = undefined; } })();
+    this.abortedRunId = undefined;
+    this.checkpointFailure = undefined;
+    const running = this.drain();
+    this.running = running;
+    void (async () => {
+      try { await running; }
+      catch (error) {
+        // A storage failure can also prevent the failure checkpoint. Let a later
+        // existing state request persist recovery once storage is available again.
+        if (this.cachedState?.run) this.checkpointFailure = { runId: this.cachedState.run.id, error: errorText(error) };
+      } finally { this.running = undefined; }
+    })();
   }
   private async pauseIfStopped(runId: string): Promise<boolean> {
-    return await this.update((state) => {
-      const run = state.run;
-      if (!run || run.id !== runId || run.status !== 'running') {
-        if (run?.id === runId && run.status === 'stopping') { run.status = 'paused'; run.error = 'Stopped. Completed labels are saved. Resume when ready.'; run.updatedAt = Date.now(); }
-        return true;
-      }
-      return false;
-    });
+    const current = (await this.read()).run;
+    if (current?.id === runId && current.status === 'running') return false;
+    this.stopTiming();
+    await this.update((state) => {
+      const run = state.run!;
+      if (run?.id === runId && run.status === 'stopping') { run.status = 'paused'; run.error = 'Stopped. Completed labels are saved. Resume when ready.'; run.updatedAt = Date.now(); }
+    }, (state) => state.run?.id === runId && state.run.status === 'stopping');
+    return true;
   }
   private async drain(): Promise<void> {
     const initial = (await this.read()).run!;
     const runId = initial.id;
+    this.timing = { runId, since: performance.now(), data: structuredClone(initial.timings || { complete: false, elapsedMs: 0, completedEmails: 0, stages: {} }) };
     try {
       while (!(await this.read()).run!.discovered) {
         if (await this.pauseIfStopped(runId)) return;
@@ -396,15 +476,29 @@ export class GmailEngine {
       }
       if (await this.pauseIfStopped(runId)) return;
       await this.ensureLabels();
-      while (true) {
-        if (await this.pauseIfStopped(runId)) return;
-        const run = (await this.read()).run!;
-        const batch = run.items.filter((item) => item.status === 'pending').slice(0, 3);
-        if (!batch.length) break;
-        const results = await Promise.allSettled(batch.map((item) => this.processItem(runId, item.id)));
-        const fatal = results.find((result) => result.status === 'rejected');
-        if (fatal?.status === 'rejected') throw fatal.reason;
-      }
+      if (await this.pauseIfStopped(runId)) return;
+      // One synchronous cursor claims each pending ID exactly once during this worker lifetime.
+      // Durable item status and decisions remain the source for an explicit resume after restart.
+      const pending = (await this.read()).run!.items.filter((item) => item.status === 'pending');
+      let cursor = 0;
+      let fatal: unknown;
+      const worker = async () => {
+        try {
+          while (cursor < pending.length) {
+            await this.checkRun(runId);
+            const item = pending[cursor++];
+            if (!item) return;
+            await this.processItem(runId, item.id);
+          }
+        } catch (error) {
+          if (!(error instanceof RunStoppedError)) { fatal ??= error; this.abortedRunId = runId; }
+        }
+      };
+      // Keep Gmail work available while up to four classifications wait for Jev.
+      await Promise.all(Array.from({ length: Math.min(HELPER_CONCURRENCY * 2, pending.length) }, () => worker()));
+      if (fatal) throw fatal;
+      if (await this.pauseIfStopped(runId)) return;
+      this.stopTiming();
       await this.update((state) => {
         const run = state.run!;
         if (run.id !== runId) return;
@@ -414,10 +508,11 @@ export class GmailEngine {
       });
     } catch (error) {
       if (error instanceof RunStoppedError) { await this.pauseIfStopped(runId); return; }
+      this.stopTiming();
       await this.update((state) => {
         if (state.run?.id === runId) { state.run.status = 'failed'; state.run.error = errorText(error); state.run.updatedAt = Date.now(); }
       });
-    }
+    } finally { this.stopTiming(); }
   }
   private labelPayload(category: Pick<DockCategory, 'title' | 'color'>) {
     return { name: labelName(category), messageListVisibility: 'show', labelListVisibility: 'labelShow', color: { backgroundColor: category.color, textColor: '#434343' } };
@@ -482,8 +577,8 @@ export class GmailEngine {
   private async processItem(runId: string, messageId: string): Promise<void> {
     try {
       let state = await this.read();
-      if (state.run?.id !== runId || state.run.status !== 'running') return;
-      const run = state.run;
+      await this.checkRun(runId);
+      const run = state.run!;
       const message = await this.gmail<GmailFullMessage>(`messages/${encodeURIComponent(messageId)}?format=full`, {}, true, runId);
       // Re-check INBOX and exact epoch bounds immediately before classifying each message.
       if (!message.labelIds?.includes('INBOX') || Number(message.internalDate) < run.cutoff || Number(message.internalDate) > run.before) {
@@ -494,11 +589,11 @@ export class GmailEngine {
         const body = await decodedBody(message.payload, async (id) => (await this.gmail<{ data: string }>(`messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(id)}`, {}, true, runId)).data);
         if (body.length > 60000) throw new Error('Email body exceeds 60,000 characters. This email was left unchanged.');
         state = await this.read();
-        if (state.run?.status !== 'running') return;
+        await this.checkRun(runId);
         decision = await this.helper<Classification>('classify', state.helperToken!, {
           message: { sender: header(message.payload, 'From'), subject: header(message.payload, 'Subject'), body },
           categories: categoryDefinitions(run.categories),
-        });
+        }, runId);
         if (decision.categoryId !== null && !run.categories.some((category) => category.id === decision!.categoryId)) throw new Error('The classifier returned an unknown category. Email left unchanged.');
         if (!decision.answer || decision.answer.type !== 'choice' || !Number.isFinite(decision.answer.confidence) || !decision.answer.probabilities || (decision.categoryId === null ? decision.answer.choice !== '__uncategorized__' : decision.answer.choice !== decision.categoryId)) throw new Error('The classifier returned an invalid Choice result. Email left unchanged.');
         await this.update((current) => {
@@ -507,11 +602,11 @@ export class GmailEngine {
         });
       }
       state = await this.read();
-      if (state.run?.status !== 'running') return;
+      await this.checkRun(runId);
       const target = decision.categoryId === null ? state.uncategorizedLabelId : state.categories.find((category) => category.id === decision!.categoryId)?.labelId;
       if (!target) throw new Error('Category label is missing. Resume the run to recreate it.');
       const removeLabelIds = [...state.categories.map((category) => category.labelId), state.uncategorizedLabelId]
-        .filter((id): id is string => !!id && id !== target && !!message.labelIds?.includes(id));
+        .filter((id): id is string => !!id && !['INBOX', 'UNREAD'].includes(id) && id !== target && !!message.labelIds?.includes(id));
       // Never pass INBOX, UNREAD, or any unrelated label as a removal. Applying again is idempotent.
       await this.gmail(`messages/${encodeURIComponent(messageId)}/modify`, { method: 'POST', body: JSON.stringify({ addLabelIds: [target], removeLabelIds }) }, true, runId);
       await this.finishItem(runId, messageId, 'succeeded');
@@ -526,7 +621,10 @@ export class GmailEngine {
       if (state.run?.id !== runId) return;
       const item = state.run.items.find((entry) => entry.id === id);
       if (item) {
+        if (item.status !== 'pending') return;
         item.status = status;
+        state.run[status]++;
+        state.run.processed++;
         if (error) item.error = error;
         if (status === 'succeeded' && item.decision) {
           // Keep full recent model results while bounding extension storage on very large runs.
@@ -534,7 +632,7 @@ export class GmailEngine {
           delete item.decision;
         }
       }
-      state.run.updatedAt = Date.now(); recalculate(state.run);
+      state.run.updatedAt = Date.now();
     });
   }
   private async refreshLabels(): Promise<void> {
@@ -583,42 +681,98 @@ export class GmailEngine {
           throw new ApiError('The Google token belongs to a different account. Stop, disconnect, and reconnect the intended Gmail account. No changes were made with that token.', 401);
         }
       }
-      let response: Response;
       try {
-        response = await this.requests.request(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, retry, runId, requestRetried);
+        return await this.requests.request(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, async (response) => {
+          if (response.status === 204 || init.method === 'DELETE') { await response.body?.cancel(); return undefined as T; }
+          return await response.json() as T;
+        }, retry, runId, requestRetried);
       } catch (error) {
         if (error instanceof ApiError && error.status === 401 && !refreshed) {
           refreshed = true; requestRetried = true; await this.deps.invalidateToken(token); this.tokenProfiles.delete(token); continue;
         }
         throw error;
       }
-      if (response.status === 204 || init.method === 'DELETE') return undefined as T;
-      return await response.json() as T;
     }
   }
   private async profileForToken(token: string, runId?: string, authRetry = false): Promise<{ emailAddress: string }> {
-    let response: Response;
-    try { response = await this.requests.request('profile', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, true, runId, authRetry); }
+    let profile: { emailAddress?: string };
+    try { profile = await this.requests.request('profile', { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, async (response) => await response.json() as { emailAddress?: string }, true, runId, authRetry); }
     catch (error) {
       if (error instanceof ApiError && error.status === 401) { await this.deps.invalidateToken(token); this.tokenProfiles.delete(token); }
       throw error;
     }
-    const profile = await response.json() as { emailAddress?: string };
     if (!profile.emailAddress) throw new Error('Gmail returned no account identity. Reconnect Gmail.');
     this.tokenProfiles.set(token, profile.emailAddress);
     return { emailAddress: profile.emailAddress };
   }
-  private async helper<T = unknown>(route: string, token: string, payload?: unknown): Promise<T> {
+  private async admitHelper(runId: string): Promise<() => void> {
+    const started = performance.now();
+    const previous = this.helperTail;
+    let release!: () => void;
+    this.helperTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      while (true) {
+        await this.checkRun(runId);
+        if (this.helperSlots.size >= HELPER_CONCURRENCY) {
+          await Promise.race(this.helperSlots);
+          continue;
+        }
+        const state = await this.read();
+        const until = Math.max(this.helperNextAt, state.helperRetryAt || 0, this.helperLimit?.remaining === 0 ? this.helperLimit.resetAt : 0);
+        const remaining = until - Date.now();
+        if (remaining > 0) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(1000, remaining)));
+          continue;
+        }
+        if (!this.helperLimit || Date.now() >= this.helperLimit.resetAt) {
+          this.helperLimit = { remaining: HELPER_REQUESTS_PER_MINUTE, resetAt: Date.now() + HELPER_RATE_WINDOW_MS, active: 0 };
+        }
+        this.helperLimit.remaining--;
+        this.helperNextAt = Date.now() + HELPER_RATE_WINDOW_MS / HELPER_REQUESTS_PER_MINUTE;
+        let free!: () => void;
+        const slot = new Promise<void>((resolve) => { free = resolve; });
+        this.helperSlots.add(slot);
+        return () => { this.helperSlots.delete(slot); free(); };
+      }
+    } finally {
+      release();
+      this.measure('helperQueue', performance.now() - started, runId);
+    }
+  }
+  private async helper<T = unknown>(route: string, token: string, payload?: unknown, runId?: string): Promise<T> {
+    const release = runId ? await this.admitHelper(runId) : undefined;
+    const started = performance.now();
     let response: Response;
+    let body: { rateLimit?: HelperRateLimit; timing?: ClassificationTiming };
     try {
       // Chromium omits Origin on extension GETs; POST makes the helper's strict Origin check reliable.
       response = await this.deps.fetch(`${HELPER_URL}/${route}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}), signal: AbortSignal.timeout(25000) });
+      const resetAt = Number(response.headers.get(HELPER_RATE_RESET_HEADER));
+      if (runId && this.helperLimit && Number.isFinite(resetAt) && resetAt > 0) this.helperLimit.resetAt = Math.max(this.helperLimit.resetAt, resetAt);
+      body = await response.json();
     } catch { throw new PauseRunError('Local helper is unavailable or timed out. Start the helper, confirm its pairing token, and retry.'); }
+    finally { release?.(); if (runId) this.measure('helperRequest', performance.now() - started, runId); }
+    if (runId && body.timing && body.timing.jevSdkCalls > 0) this.measure('jevRequest', body.timing.jevRequestMs, runId, body.timing.jevSdkCalls);
+    // The response contributes to bounded aggregates, not per-email stored timing records.
+    delete body.timing;
     if (!response.ok) {
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const seconds = retryAfter === null ? NaN : Number(retryAfter);
+        const until = Number.isFinite(seconds) ? Date.now() + Math.max(2000, seconds * 1000) : Math.max(Date.now() + 2000, Date.parse(retryAfter || '') || 0);
+        this.helperNextAt = Math.max(this.helperNextAt, until);
+        await this.update((state) => { state.helperRetryAt = Math.max(state.helperRetryAt || 0, until); });
+      }
       if (response.status === 401 || response.status === 403) throw new PauseRunError('The local helper rejected the pairing token or extension identity. Pair again using the helper token.');
       if (response.status === 413) throw new Error('This email or category description set exceeds the classifier size limit. Email left unchanged.');
       throw new PauseRunError(`Classification helper failed (${response.status}). This email was left unchanged; retry later.`);
     }
-    return await response.json() as T;
+    if (route === 'health' && body.rateLimit) {
+      this.helperLimit = body.rateLimit;
+      // A restarted worker can leave server calls active until the existing 23-second deadline.
+      if (body.rateLimit.active > 0) this.helperNextAt = Math.max(this.helperNextAt, Date.now() + 25000);
+    }
+    return body as T;
   }
 }

@@ -33,6 +33,7 @@ export interface StoredState extends Omit<DockState, 'oauthConfigured' | 'helper
   recentDecisions?: { messageId: string; decision: Classification }[];
   uncategorizedLabelId?: string;
   gmailTraffic?: GmailTraffic;
+  helperRetryAt?: number;
   run?: StoredRun;
 }
 export const COLORS = ['#c9daf8', '#e4d7f5', '#fef1d1', '#fcdee8', '#b9e4d0', '#ffe6c7', '#e7e7e7'];
@@ -84,6 +85,7 @@ export function runProgress(run: StoredRun): RunProgress {
     startedAt: run.startedAt, updatedAt: run.updatedAt, error: run.error, retryAt: run.retryAt,
     accountEmail: run.accountEmail,
     gmailUsage: run.gmailUsage ? structuredClone(run.gmailUsage) : undefined,
+    timings: run.timings ? structuredClone(run.timings) : undefined,
   };
 }
 export function archiveRun(state: StoredState): void {

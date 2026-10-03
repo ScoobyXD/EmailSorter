@@ -26,6 +26,16 @@ export interface GmailQuotaUsage {
   complete: boolean;
   methods: GmailQuotaEntry[];
 }
+export type TimingStage = 'gmailQueue' | 'gmailRequest' | 'helperQueue' | 'helperRequest' | 'jevRequest' | 'storageRead' | 'storageWrite';
+export interface RunTimings {
+  /** False for old runs or a worker restart with an unmeasured interval. */
+  complete: boolean;
+  /** Active elapsed time, including setup, cooldowns and Stop drain. Pauses are excluded. */
+  elapsedMs: number;
+  completedEmails: number;
+  /** Aggregate operation durations overlap. They are not elapsed run time. */
+  stages: Partial<Record<TimingStage, { count: number; totalMs: number; maxMs: number }>>;
+}
 export interface RunProgress {
   id: string;
   status: 'running' | 'stopping' | 'paused' | 'completed' | 'failed';
@@ -42,6 +52,7 @@ export interface RunProgress {
   error?: string;
   accountEmail?: string;
   gmailUsage?: GmailQuotaUsage;
+  timings?: RunTimings;
 }
 export interface DockState {
   version: 2;

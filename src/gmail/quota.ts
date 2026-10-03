@@ -1,4 +1,5 @@
 export const GMAIL_QUOTA_SOURCE = 'https://developers.google.com/workspace/gmail/api/reference/quota';
+export const GMAIL_QUOTA_UNITS_PER_MINUTE = 6000;
 
 /** Published Gmail quota costs, checked on 2026-10-02. */
 export const GMAIL_QUOTA_METHODS = {

@@ -7,12 +7,23 @@ const statusLabels: Record<RunProgress['status'], string> = {
 };
 const formatNumber = (value: number) => value.toLocaleString();
 const formatDate = (value: number) => new Date(value).toLocaleString();
+const formatDecimal = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+const timingStageLabels: Record<keyof NonNullable<RunProgress['timings']>['stages'], string> = {
+  gmailQueue: 'Gmail quota / queue wait',
+  gmailRequest: 'Gmail requests',
+  helperQueue: 'Helper queue wait',
+  helperRequest: 'Helper requests',
+  jevRequest: 'Jev requests',
+  storageRead: 'Storage reads',
+  storageWrite: 'Storage writes',
+};
 
 export function GmailUsage({ run, runHistory, onClose }: Pick<DockState, 'run' | 'runHistory'> & { onClose: () => void }) {
   const runs = [...(run ? [run] : []), ...(runHistory ?? []).filter(previous => previous.id !== run?.id)];
   const [selectedId, setSelectedId] = useState(run?.id ?? runs[0]?.id ?? '');
   const selected = runs.find(item => item.id === selectedId) ?? runs[0];
   const usage = selected?.gmailUsage;
+  const timings = selected?.timings;
   const totals = usage?.methods.reduce((sum, entry) => ({
     units: sum.units + entry.requests * entry.unitsPerRequest,
     requests: sum.requests + entry.requests,
@@ -33,6 +44,33 @@ export function GmailUsage({ run, runHistory, onClose }: Pick<DockState, 'run' |
         <div><dt>Status</dt><dd>{statusLabels[selected.status]}</dd></div>
         <div><dt>Account</dt><dd>{selected.accountEmail ?? 'Not recorded'}</dd></div>
       </dl>
+      <h3>Run timing</h3>
+      {timings ? <>
+        {!timings.complete && <p className="dock-notice">Partial timing. These values cover measured periods only. Earlier work or interrupted periods may be missing.</p>}
+        <dl className="dock-usage-summary">
+          <div><dt>Completed emails measured</dt><dd>{formatNumber(timings.completedEmails)}</dd></div>
+          <div><dt>Active elapsed minutes</dt><dd>{formatDecimal(timings.elapsedMs / 60_000)}</dd></div>
+          <div><dt>{timings.complete ? 'Completed emails / min' : 'Measured emails / min'}</dt><dd>{timings.elapsedMs > 0 ? formatDecimal(timings.completedEmails * 60_000 / timings.elapsedMs) : '—'}</dd></div>
+        </dl>
+        <p className="dock-field-help">Rate uses completed emails divided by measured active elapsed time. Elapsed time includes Gmail setup, cooldowns, and work that finishes after Stop. Helper preflight, pauses, and browser downtime are excluded.</p>
+        {Object.keys(timings.stages).length > 0 && <div className="dock-usage-table-scroll" tabIndex={0} role="region" aria-labelledby="dock-usage-timing-caption" aria-describedby="dock-usage-timing-note">
+          <table className="dock-usage-table">
+            <caption id="dock-usage-timing-caption">Aggregate stage durations</caption>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Count</th><th scope="col">Aggregate seconds</th><th scope="col">Maximum seconds</th></tr></thead>
+            <tbody>{(Object.keys(timingStageLabels) as (keyof typeof timingStageLabels)[]).map(stage => {
+              const timing = timings.stages[stage];
+              return timing ? <tr key={stage}>
+                <th scope="row">{timingStageLabels[stage]}</th>
+                <td>{formatNumber(timing.count)}</td>
+                <td>{formatDecimal(timing.totalMs / 1_000)}</td>
+                <td>{formatDecimal(timing.maxMs / 1_000)}</td>
+              </tr> : null;
+            })}</tbody>
+          </table>
+        </div>}
+        <p id="dock-usage-timing-note" className="dock-field-help">Aggregate durations add time across recorded operations. Operations overlap, so these totals do not equal elapsed time. Jev request durations include SDK retries when they occur. The SDK does not expose their count.</p>
+      </> : <p>Timing is unavailable for this run.</p>}
+      <h3>Gmail requests</h3>
       {usage && totals ? <>
         {!usage.complete && <p className="dock-notice">Partial tracking since {formatDate(usage.startedAt)}. Earlier requests are excluded.</p>}
         <dl className="dock-usage-summary">
@@ -57,7 +95,7 @@ export function GmailUsage({ run, runHistory, onClose }: Pick<DockState, 'run' |
             <tfoot><tr><th scope="row">Total</th><td>{formatNumber(totals.requests)}</td><td>{formatNumber(totals.retries)}</td><td>{formatNumber(totals.httpErrors)}</td><td>{formatNumber(totals.requests - totals.succeeded - totals.httpErrors)}</td><td>—</td><td>{formatNumber(totals.units)}</td></tr></tfoot>
           </table>
         </div> : <p>No Gmail requests recorded yet.</p>}
-        <p id="dock-usage-requests-note" className="dock-field-help">Requests include retries. Retries count automatic retries, not manual resumes. No response includes network errors and requests still pending or interrupted.</p>
+        <p id="dock-usage-requests-note" className="dock-field-help">Requests include retries. Retries count automatic Gmail retries, not manual resumes or Jev retries. No response includes network errors and requests still pending or interrupted.</p>
         <p className="dock-field-help">Estimates use the stored quota cost for each tracked attempt, including retries and errors. Google's actual quota usage may differ. <a href={GMAIL_QUOTA_SOURCE} target="_blank" rel="noreferrer">Google's quota costs</a></p>
       </> : <p>Gmail usage is unavailable for this run.</p>}
     </> : <p>No runs yet. Start a run to record Gmail usage.</p>}
