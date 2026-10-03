@@ -1,8 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ClipboardList, Factory, Inbox, Plus, ReceiptText, Settings2, ShieldCheck, ShoppingBag, Package, Users, Star, Tag, Truck, X, type LucideIcon } from 'lucide-react';
 import { createInitialState, migrateDemoState, sampleMessages, type DemoState, type DemoStorage } from './data';
 import { GmailUsage } from './GmailUsage';
+import { RunErrors } from './RunErrors';
+import { useAnchoredPopover } from './useAnchoredPopover';
 import { UNCATEGORIZED, type DockCategory, type DockRequest, type DockResponse, type DockState } from '../gmail/protocol';
 import { COLORS, DEFAULT_CATEGORY_TITLE, isStarterCategory } from '../gmail/model';
 import { canOpenGmailInPlace, getGmailLabelFromRoute, gmailLabelHash, openGmailRoute } from '../integration/gmail-navigation';
@@ -122,64 +124,14 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     if (deleting) noRef.current?.focus();
   }, [dialogOpen, !!deleting]);
 
-  useLayoutEffect(() => {
-    const panel = editorRef.current;
-    const anchor = editorAnchorRef.current;
-    if (!editor || !panel || !anchor) return;
-    const nativePopover = 'popover' in HTMLElement.prototype;
-    if (nativePopover) panel.showPopover();
-    let frame = 0;
-    const position = () => {
-      frame = 0;
-      if (!anchor.isConnected || !anchor.getClientRects().length) { closeEditor(false); return; }
-      const target = anchor.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const left = viewport?.offsetLeft ?? 0;
-      const top = viewport?.offsetTop ?? 0;
-      const right = left + (viewport?.width ?? innerWidth);
-      const bottom = top + (viewport?.height ?? innerHeight);
-      const box = panel.getBoundingClientRect();
-      const below = target.bottom + 4;
-      const above = target.top - box.height - 4;
-      const y = below + box.height <= bottom - 8 || above < top + 8 ? below : above;
-      panel.style.left = `${Math.max(left + 8, Math.min(target.left, right - box.width - 8))}px`;
-      panel.style.top = `${Math.max(top + 8, Math.min(y, bottom - box.height - 8))}px`;
-    };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(position); };
-    const dismissOutside = (event: PointerEvent) => {
-      if (!event.composedPath().includes(panel) && !event.composedPath().includes(editorTriggerRef.current!)) closeEditor(false);
-    };
-    const closeOnRoute = () => closeEditor(false);
-    position();
-    titleRef.current?.focus({ preventScroll: true });
-    if (editor.title === DEFAULT_CATEGORY_TITLE) titleRef.current?.select();
-    const observer = new ResizeObserver(schedule);
-    observer.observe(anchor);
-    observer.observe(panel);
-    if (tabsTarget) observer.observe(tabsTarget);
-    // Native popovers escape Gmail's clipping wrappers. Older browsers retain
-    // the same fixed placement and use an outside-pointer listener to dismiss.
-    if (!nativePopover) document.addEventListener('pointerdown', dismissOutside, true);
-    window.addEventListener('resize', schedule);
-    window.addEventListener('scroll', schedule, true);
-    window.addEventListener('hashchange', closeOnRoute);
-    viewportListeners(true);
-    function viewportListeners(add: boolean) {
-      if (add) { window.visualViewport?.addEventListener('resize', schedule); window.visualViewport?.addEventListener('scroll', schedule); }
-      else { window.visualViewport?.removeEventListener('resize', schedule); window.visualViewport?.removeEventListener('scroll', schedule); }
-    }
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      observer.disconnect();
-      if (nativePopover && panel.matches(':popover-open')) panel.hidePopover();
-      document.removeEventListener('pointerdown', dismissOutside, true);
-      window.removeEventListener('resize', schedule);
-      window.removeEventListener('scroll', schedule, true);
-      window.removeEventListener('hashchange', closeOnRoute);
-      viewportListeners(false);
-    };
-  }, [editor?.id, !!editor, tabsTarget]);
-
+  useAnchoredPopover({
+    open: !!editor, resetKey: editor?.id, panelRef: editorRef, anchorRef: editorAnchorRef,
+    triggerRef: editorTriggerRef, layoutTarget: tabsTarget, onClose: () => closeEditor(false),
+    onOpen: () => {
+      titleRef.current?.focus({ preventScroll: true });
+      if (editor?.title === DEFAULT_CATEGORY_TITLE) titleRef.current?.select();
+    },
+  });
   useEffect(() => {
     if (!live) return;
     function syncSelection() {
@@ -330,7 +282,7 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
     : run.status === 'completed' ? 'Done'
       : `${run.processed}/${run.total} processed · ${run.status === 'stopping' ? 'Stopping…' : run.status === 'paused' ? 'Stopped' : 'Interrupted'}`;
   const runText = run ? [`${run.succeeded} labeled`, runDetails, ...(run.skipped ? [`${run.skipped} skipped`] : []), ...(run.failed ? [`${run.failed} failed`] : [])].join(' · ') : '';
-  const toolbarError = (!dialogOpen && !editor && formError) || run?.error || state.error;
+  const toolbarError = (!dialogOpen && !editor && formError) || state.error;
   const EditorIcon = categoryIcons[editor?.icon ?? 'tag'] ?? Tag;
 
   function renderTab(category: DockCategory, system = false) {
@@ -371,6 +323,13 @@ export function Workspace({ storage, api, mode = 'preview', tabsTarget, controls
           {live && <button type="button" className="dock-button" ref={usageRef} disabled={!loaded} aria-haspopup="dialog" onClick={() => setUsageOpen(true)}>Gmail usage</button>}
           {run && <div className="dock-run-status" role="status"><span className="dock-run-summary">{runText}</span>{running && <progress aria-label="Categorization progress" max={Math.max(1, run.total)} value={run.phase === 'discovering' ? undefined : run.processed} />}{canResume && <label className="dock-resume-choice" title="Resume unfinished or failed messages when I press Categorize emails"><input type="checkbox" checked={resumeRun} onChange={event => setResumeRun(event.target.checked)} />Resume unfinished</label>}</div>}
           {toolbarError && <span className="dock-error dock-toolbar-error" role="alert" title={toolbarError}>{toolbarError}</span>}
+          {run && (run.error || run.failed > 0 || !!run.failures?.length) && <RunErrors key={run.id} run={run} accountEmail={run.accountEmail || state.accountEmail} layoutTarget={controlsTarget} onRefresh={async () => {
+            const result = await api!({ type: 'dock:api', command: 'refreshRunErrors', runId: run.id });
+            if (!result.ok) throw new Error(result.error);
+            const refreshed = result.state?.run;
+            if (refreshed) setState(current => current.run?.id === refreshed.id && current.run.updatedAt === refreshed.updatedAt
+              ? { ...current, run: { ...current.run, failures: refreshed.failures } } : current);
+          }} />}
           {!!incompleteCategories.length && <span className="dock-notice">Name and describe your categories to begin.</span>}
           {live ? <button type="button" className={`dock-button dock-setup-button ${state.accountEmail ? 'is-connected' : ''}`} aria-label={state.accountEmail ? 'Connection' : 'Connect Gmail'} title={state.accountEmail ? 'Connection' : 'Connect Gmail'} onClick={() => { setFormError(''); setSetup(true); }}><Settings2 size={16} aria-hidden="true" />{!state.accountEmail && 'Connect Gmail'}</button> : <span className="dock-demo-note">{mode === 'outlook' ? 'Outlook demo · account connection not available' : 'Preview · sample messages only'}</span>}
         </div>

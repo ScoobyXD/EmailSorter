@@ -35,7 +35,18 @@ export function gmailLabelHash(labelName: string): string {
   return `#label/${encodeURIComponent(labelName).replace(/%20/g, '+')}`;
 }
 
+/** The legacy all-mail route accepts the API's hex message ID, not a thread or modern UI ID.
+ * Google documents the shared web/API ID: https://developers.google.com/workspace/gmail/imap/imap-extensions#access_to_the_gmail_unique_message_id_x-gm-msgid
+ */
+export function gmailMessageHash(messageId: string): string {
+  return `#all/${encodeURIComponent(messageId)}`;
+}
+
+export function gmailRouteUrl(accountEmail: string, hash: string): string {
+  return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(accountEmail)}${hash}`;
+}
+
 export function openGmailRoute(accountEmail: string, hash: string): void {
   if (canOpenGmailInPlace(accountEmail)) window.location.hash = hash;
-  else window.location.assign(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(accountEmail)}${hash}`);
+  else window.location.assign(gmailRouteUrl(accountEmail, hash));
 }

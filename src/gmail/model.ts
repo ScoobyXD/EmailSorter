@@ -1,4 +1,4 @@
-import type { DockCategory, DockState, RunProgress } from './protocol';
+import type { DockCategory, DockState, EmailReference, RunProgress } from './protocol';
 import type { GmailTraffic } from './requests';
 
 export interface Classification {
@@ -7,8 +7,7 @@ export interface Classification {
   answer: { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> };
   usage: { input_tokens: number; output_tokens: number };
 }
-interface RunItem {
-  id: string;
+interface RunItem extends EmailReference {
   status: 'pending' | 'succeeded' | 'failed' | 'skipped';
   /** Persist the exact probability output before Gmail mutation so retries reuse it. */
   decision?: Classification;
@@ -73,7 +72,12 @@ export function publicState(state: StoredState, oauthConfigured: boolean): DockS
     accountEmail: state.accountEmail, helperReady: Boolean(state.helperToken), oauthConfigured,
     uncategorizedLabelName: state.uncategorizedLabelName,
     error: state.error,
-    ...(state.run ? { run: runProgress(state.run) } : {}),
+    ...(state.run ? { run: {
+      ...runProgress(state.run),
+      failures: state.run.items.filter((item) => item.status === 'failed').map(({ id, subject, sender, error }) => ({
+        id, subject, sender, error: error || 'This email could not be categorized.',
+      })),
+    } } : {}),
     runHistory: state.runHistory,
   };
 }

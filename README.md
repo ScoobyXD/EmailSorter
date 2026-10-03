@@ -1,4 +1,4 @@
-# Dock 0.4.10 — manual Gmail categories
+# Dock 0.4.14 — manual Gmail categories
 
 Dock adds category tabs inside Gmail. Press **Categorize emails** to classify only messages currently in Inbox received within the selected date window (30 days by default). There is no schedule, new-mail watcher, overnight worker, or urgency ranking. Outlook and the standalone preview remain sample-only.
 
@@ -10,7 +10,7 @@ The old Codex workspace paths forward to this project for compatibility with the
 
 ## Update the installed Dock
 
-1. The existing `outputs\dock-extension` folder contains **0.4.10**. Reload **Dock — Gmail Categories** in `chrome://extensions`, then refresh Gmail.
+1. The existing `outputs\dock-extension` folder contains **0.4.14**. Reload **Dock — Gmail Categories** in `chrome://extensions`, then refresh Gmail.
 2. Keep the same installed extension (`ccklhlnpillicildcgbdfibggkkhkdib`) to preserve saved categories and checkpoints.
 3. Categorize emails, the days slider, progress, resume, and errors share Gmail's top action toolbar, above the category tabs.
 4. The toolbar omits the scope and account text. Connection settings still show the connected account.
@@ -28,6 +28,7 @@ The old Codex workspace paths forward to this project for compatibility with the
 16. New installs start with three **Edit Me!** categories. Give each a name and description before categorizing. Existing saved categories stay intact.
 17. **Edit** opens a compact panel below the category: Icon and Color, then Name and Description. Save applies all four fields.
 18. The sidebar edge returns to gray when the pointer leaves. Keyboard focus still shows a blue outline.
+19. Open the errors dropdown to read full saved errors and follow links to the affected emails. Missing subjects and senders load when opened.
 
 ## First installation
 
